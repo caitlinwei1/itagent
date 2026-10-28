@@ -1,0 +1,95 @@
+# What the agent may do on its own, what needs an approver, and what only a human team may do.
+# The policy engine (helpdesk/policy.py) reads this file; the model never sees it as instructions,
+# only the decisions it produces.
+#
+# decision values:
+#   allow           - the agent may run the action now (all `requires` must hold)
+#   needs_approval  - the agent may only file an approval request; access is granted after approval
+#   human_only      - the agent must escalate to `team`
+#   forbidden       - nobody grants this through the helpdesk; explain why
+
+actions:
+  unlock_account:
+    decision: allow
+    requires: [identity_verified, account_locked]
+    description: Unlock the employee's own Okta account after a lockout.
+  send_password_reset_link:
+    decision: allow
+    requires: [identity_verified, account_not_suspended]
+    description: Send a self-service password reset link to the employee's registered recovery email or phone.
+  reset_mfa_factor:
+    decision: human_only
+    team: Identity & Access
+    description: Remove or re-enroll an MFA factor (lost or replaced phone). High risk of account takeover.
+  reactivate_account:
+    decision: human_only
+    team: Identity & Access
+    description: Reactivate a suspended account. Requires HR confirmation.
+  grant_access:
+    decision: by_resource            # see `resources` below
+    requires: [identity_verified]
+    description: Grant the employee access to a catalog resource.
+  request_access_approval:
+    decision: allow
+    description: File an approval request for a catalog resource; approvers are notified.
+  push_software_update:
+    decision: allow
+    requires: [identity_verified, package_approved, device_managed]
+    description: Push an approved software version to the employee's own managed device via Self Service.
+  add_user_to_incident:
+    decision: allow
+    description: Record the employee as affected by an open incident and subscribe them to updates.
+  grant_local_admin:
+    decision: forbidden
+    description: Local administrator rights are not granted to individuals. Approved software is installed through Self Service.
+  change_firewall_rule:
+    decision: human_only
+    team: Network
+    description: Network and firewall changes.
+  rerun_production_pipeline:
+    decision: human_only
+    team: Data Platform
+    description: Re-running or backfilling production data jobs.
+  rotate_service_credentials:
+    decision: human_only
+    team: Data Platform
+    description: Service account credentials.
+  wipe_or_lock_device:
+    decision: human_only
+    team: Security Operations
+    description: Remote lock or wipe of a lost or stolen device.
+
+# Access catalog. approval: auto | manager | manager+data_owner | not_requestable
+resources:
+  grafana-viewer:      {name: "Grafana dashboards (viewer)", approval: auto, eligible_departments: [Engineering, Data Engineering, SRE], typical_turnaround: "immediate"}
+  grafana-editor:      {name: "Grafana dashboards (editor)", approval: manager, eligible_departments: [Engineering, Data Engineering, SRE], typical_turnaround: "same day"}
+  snowflake-dev:       {name: "Snowflake DEV (read/write)", approval: auto, eligible_departments: [Data Engineering, Analytics], typical_turnaround: "immediate"}
+  snowflake-prod-read: {name: "Snowflake PROD (read-only)", approval: manager+data_owner, data_owner: "Data Governance (Priya Shah)", eligible_departments: [Data Engineering, Analytics], typical_turnaround: "1-2 business days"}
+  snowflake-prod-write: {name: "Snowflake PROD (read/write)", approval: not_requestable, team: Data Platform, typical_turnaround: "service accounts only"}
+  jenkins-data-team:   {name: "Jenkins - Data team folder", approval: manager, eligible_departments: [Data Engineering], typical_turnaround: "same day"}
+  tableau-viewer:      {name: "Tableau (viewer)", approval: auto, eligible_departments: [all], typical_turnaround: "immediate"}
+  tableau-creator:     {name: "Tableau (creator)", approval: manager, eligible_departments: [all], typical_turnaround: "1 business day"}
+  salesforce-standard: {name: "Salesforce (standard user)", approval: manager, eligible_departments: [Sales, Customer Success, Marketing], typical_turnaround: "1 business day"}
+  github-org:          {name: "GitHub organization", approval: auto, eligible_departments: [Engineering, Data Engineering, SRE], typical_turnaround: "immediate"}
+  jira:                {name: "Jira", approval: auto, eligible_departments: [all], typical_turnaround: "immediate"}
+
+# Software that may be pushed through Self Service.
+approved_software:
+  GlobalProtect: "6.2.3"
+  Zoom: "6.5"
+  Docker Desktop: "4.38"
+  Slack: "4.45"
+  Chrome: "141"
+
+# Teams that escalations may be routed to.
+teams:
+  - Identity & Access
+  - Network
+  - Endpoint & Workplace Support
+  - Business Applications
+  - Data Platform
+  - SRE
+  - Workplace Technology
+  - Developer Productivity
+  - Security Operations
+  - Service Desk (Tier 2)

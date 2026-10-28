@@ -1,0 +1,19 @@
+[
+  {"id": "INC-2051", "service": "Salesforce", "status": "investigating", "severity": "major",
+   "title": "Salesforce pages loading slowly for Chicago office users",
+   "started_at": "2026-10-21T14:10:00Z", "affected_locations": ["Chicago"],
+   "summary": "Page loads of 20-60 seconds for users on the Chicago office network. Users elsewhere are not affected. Network team suspects the office web proxy change CHG-4420.",
+   "workaround": "Use the Salesforce mobile app, or connect to the 'US-Direct' GlobalProtect gateway, which bypasses the Chicago office proxy.",
+   "eta": "2026-10-22T20:00:00Z", "affected_user_count": 14, "affected_users": []},
+  {"id": "INC-2055", "service": "Printing", "status": "identified", "severity": "minor",
+   "title": "Floor 3 printers offline in the London office",
+   "started_at": "2026-10-22T07:30:00Z", "affected_locations": ["London"],
+   "summary": "The print server for London floor 3 is down after a failed patch. Engineers are restoring it.",
+   "workaround": "Release print jobs at any floor 2 or floor 4 printer with your badge (PaperCut Follow-Me printing).",
+   "eta": "2026-10-22T16:00:00Z", "affected_user_count": 6, "affected_users": []},
+  {"id": "INC-2032", "service": "Microsoft 365", "status": "resolved", "severity": "minor",
+   "title": "Delayed external email delivery",
+   "started_at": "2026-10-14T09:00:00Z", "resolved_at": "2026-10-14T13:20:00Z", "affected_locations": ["all"],
+   "summary": "External email was delayed by up to 2 hours. Resolved by Microsoft.", "workaround": null, "eta": null,
+   "affected_user_count": 0, "affected_users": []}
+]

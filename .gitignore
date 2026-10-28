@@ -1,0 +1,8 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+var/
+evals/reports/*.json
+.DS_Store
+.vscode/

@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Acme IT Support</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #667085; --line: #e3e6eb;
+    --accent: #2f6fde; --accent-soft: #e8f0fd; --user: #2f6fde; --ok: #16794a; --warn: #a15c00; --err: #b42318;
+    --code: #f2f4f7; --notice: #fff6e5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111418; --panel: #1a1e24; --ink: #e6e9ee; --muted: #98a2b3; --line: #2b313a;
+      --accent: #6b9cf0; --accent-soft: #1f2a3d; --user: #3a6fd0; --ok: #4cc38a; --warn: #f0b04a; --err: #f97066;
+      --code: #232830; --notice: #2d2617; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: var(--bg); color: var(--ink); height: 100vh; display: flex; flex-direction: column; }
+  header { display: flex; gap: 12px; align-items: center; padding: 10px 16px; background: var(--panel);
+           border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0 8px 0 0; }
+  select, button, textarea { font: inherit; color: inherit; }
+  select { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  button:disabled { opacity: .5; cursor: default; }
+  main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 420px; min-height: 0; }
+  #chat { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
+  #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 78%; padding: 10px 13px; border-radius: 12px; white-space: normal; word-wrap: break-word; }
+  .msg.user { align-self: flex-end; background: var(--user); color: #fff; border-bottom-right-radius: 4px; }
+  .msg.bot { align-self: flex-start; background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .msg.notice { align-self: center; background: var(--notice); font-size: 13px; color: var(--ink); max-width: 90%; }
+  .msg.status { align-self: center; color: var(--muted); font-size: 12.5px; }
+  .msg p { margin: 0 0 6px; } .msg p:last-child { margin: 0; } .msg ol, .msg ul { margin: 4px 0 6px; padding-left: 20px; }
+  #examples { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 16px 8px; }
+  #examples button { font-size: 12.5px; padding: 4px 9px; }
+  form { display: flex; gap: 8px; padding: 10px 16px 14px; border-top: 1px solid var(--line); background: var(--panel); }
+  textarea { flex: 1; resize: none; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--bg); height: 52px; }
+  aside { display: flex; flex-direction: column; min-height: 0; background: var(--panel); }
+  .tabs { display: flex; border-bottom: 1px solid var(--line); }
+  .tabs button { flex: 1; background: transparent; color: var(--muted); border-radius: 0; border-bottom: 2px solid transparent; }
+  .tabs button.on { color: var(--ink); border-bottom-color: var(--accent); }
+  .pane { flex: 1; overflow-y: auto; padding: 12px 14px; display: none; font-size: 12.5px; }
+  .pane.on { display: block; }
+  .ev { border-left: 3px solid var(--line); padding: 4px 8px; margin: 0 0 8px; }
+  .ev.tool { border-color: var(--accent); } .ev.err { border-color: var(--err); } .ev.think { border-color: var(--muted); color: var(--muted); font-style: italic; }
+  .ev.guard { border-color: var(--warn); } .ev.model { border-color: transparent; color: var(--muted); padding: 0 8px; }
+  .ev .name { font-weight: 600; } .ev details summary { cursor: pointer; color: var(--muted); }
+  pre { background: var(--code); padding: 8px; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; margin: 4px 0; font-size: 11.5px; }
+  .kv { display: grid; grid-template-columns: 110px 1fr; gap: 3px 8px; margin-bottom: 10px; }
+  .kv div:nth-child(odd) { color: var(--muted); }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  h3 { font-size: 12.5px; margin: 12px 0 4px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  ul.plain { margin: 0; padding-left: 16px; }
+  .footer { padding: 6px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  .progress { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
+  .progress summary { cursor: pointer; }
+  .steps { list-style: none; margin: 4px 0 0; padding: 0; }
+  .steps li { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; }
+  .steps li .icon { width: 14px; flex: none; text-align: center; }
+  .steps li .out { margin-left: auto; padding-left: 8px; font-size: 12px; white-space: nowrap; }
+  .steps li.done .icon { color: var(--ok); } .steps li.fail .icon { color: var(--err); }
+  .steps li.note { font-style: italic; }
+  .spin { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--line); border-top-color: var(--accent);
+          border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .reasoning { font-style: italic; font-size: 12.5px; color: var(--muted); margin-top: 6px; max-height: 3.2em; overflow: hidden; }
+  .draft:empty { display: none; }
+  .draft { margin-top: 8px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } aside { max-height: 45vh; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Acme IT Support</h1>
+  <label>Signed in as <select id="user"></select></label>
+  <label>Fault injection <select id="faults">
+    <option value="">none</option>
+    <option value="check_system_status:timeout">status page down</option>
+    <option value="search_kb:flaky">KB search flaky (retry works)</option>
+    <option value="get_account_diagnostics:error">diagnostics down</option>
+  </select></label>
+  <button class="ghost" id="reset">New conversation</button>
+</header>
+<main>
+  <section id="chat">
+    <div id="messages"></div>
+    <div id="examples"></div>
+    <form id="form"><textarea id="input" placeholder="Describe your IT problem... (Enter to send, Shift+Enter for a new line)"></textarea><button id="send">Send</button></form>
+  </section>
+  <aside>
+    <div class="tabs"><button data-tab="trace" class="on">Agent trace</button><button data-tab="case">Case record</button><button data-tab="handoff">Handoff</button></div>
+    <div class="pane on" id="trace"></div>
+    <div class="pane" id="case"></div>
+    <div class="pane" id="handoff"><p style="color:var(--muted)">No escalation yet.</p></div>
+    <div class="footer" id="usage">-</div>
+  </aside>
+</main>
+<script>
+const EXAMPLES = {
+  "u-maya": "I can't log into Okta. I've tried resetting my password but it still doesn't work. I need access urgently for a client meeting in 30 minutes.",
+  "u-david": "Salesforce has been loading extremely slowly since yesterday. My teammates in the Chicago office are seeing the same thing.",
+  "u-priya": "My VPN keeps disconnecting every 10-15 minutes. I'm working remotely and can't access internal tools.",
+  "u-alex": "I just joined the Data Engineering team and need access to the Snowflake production database and the internal Grafana dashboards.",
+  "u-sam": "Since the IT maintenance window last Friday, our team's automated data pipeline has been failing. The Jenkins jobs time out and the downstream Tableau reports are stale.",
+  "u-jordan": "Outlook stopped sending my emails this morning.",
+  "u-ken": "I got a new phone and Okta Verify isn't on it anymore. Also can you give me local admin so I can install Docker?",
+  "u-olivia": "I can't sign in, it says my account is suspended?"
+};
+const $ = s => document.querySelector(s);
+let session = null, busy = false;
+
+function esc(t) { return t.replace(/[&<>]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;"}[c])); }
+function md(text) {  // tiny markdown: bold, numbered and bullet lists, paragraphs
+  const lines = esc(text).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").split("\n");
+  let html = "", list = null;
+  for (const line of lines) {
+    const ol = line.match(/^\s*\d+\.\s+(.*)/), ul = line.match(/^\s*[-*]\s+(.*)/);
+    const want = ol ? "ol" : ul ? "ul" : null;
+    if (list && want !== list) { html += `</${list}>`; list = null; }
+    if (want) { if (!list) { html += `<${want}>`; list = want; } html += `<li>${(ol || ul)[1]}</li>`; }
+    else if (line.trim()) html += `<p>${line}</p>`;
+  }
+  return html + (list ? `</${list}>` : "");
+}
+function addMsg(cls, html) {
+  const d = document.createElement("div"); d.className = "msg " + cls; d.innerHTML = html;
+  $("#messages").appendChild(d); d.scrollIntoView({block: "end"}); return d;
+}
+function addEvent(ev) {
+  const t = $("#trace"), d = document.createElement("div");
+  if (ev.type === "tool_call") {
+    d.className = "ev tool" + (ev.is_error ? " err" : "");
+    d.innerHTML = `<span class="name">${ev.name}</span> <span style="color:var(--muted)">${ev.ms} ms${ev.result && ev.result.evidence_id ? " · " + ev.result.evidence_id : ""}</span>
+      <pre>${esc(JSON.stringify(ev.input))}</pre><details><summary>result</summary><pre>${esc(JSON.stringify(ev.result, null, 1))}</pre></details>`;
+  } else if (ev.type === "thinking") {
+    d.className = "ev think"; d.textContent = ev.text;
+  } else if (ev.type === "guard") {
+    d.className = "ev guard"; d.textContent = "Quality check sent the reply back: " + ev.problems.join(" ");
+  } else if (ev.type === "model_call") {
+    d.className = "ev model"; d.textContent = `model call · ${ev.ms} ms · ${ev.output_tokens} out · cache read ${ev.cache_read_input_tokens}`;
+  } else if (ev.type === "user_message") {
+    d.className = "ev model"; d.innerHTML = "<b>— employee message —</b>";
+  } else return;
+  t.appendChild(d); t.scrollTop = t.scrollHeight;
+}
+function renderCase(c) {
+  const li = a => a.length ? "<ul class='plain'>" + a.map(x => `<li>${esc(x)}</li>`).join("") + "</ul>" : "<span style='color:var(--muted)'>none</span>";
+  $("#case").innerHTML = `<div class="kv">
+    <div>Status</div><div><span class="pill">${c.status}</span> ${c.ticket_id || ""}</div>
+    <div>Identity</div><div>${c.identity_verified ? "verified (step-up)" : "session only"}</div>
+    <div>Type</div><div>${c.request_type}</div><div>Systems</div><div>${c.systems.join(", ") || "-"}</div>
+    <div>Symptom</div><div>${c.symptom}</div><div>Goal</div><div>${esc(c.user_goal || "-")}</div>
+    <div>Deadline</div><div>${c.deadline || "-"}</div></div>
+    <h3>Hypotheses</h3>${li(c.hypotheses.map(h => `${h.id} [${h.status}] ${h.cause} ${h.evidence_refs.join(" ")}`))}
+    <h3>Employee claims</h3>${li(c.claims.map(x => `[${x.status}] ${x.text}`))}
+    <h3>Evidence</h3>${li(c.evidence.map(e => `${e.id} ${e.tool} ${JSON.stringify(e.args)}`))}
+    <h3>Actions</h3>${li(c.actions.map(a => `${a.action}(${a.target || ""}) → ${a.decision}${a.executed ? " ✓" : ""}: ${a.detail}`))}
+    <h3>KB read</h3>${li(c.kb_articles_read)}
+    ${c.outcome_summary ? `<h3>Outcome</h3><p>${esc(c.outcome_summary)}</p>` : ""}`;
+}
+async function showHandoff(id) {
+  const r = await fetch("/api/tickets/" + id); if (!r.ok) return;
+  $("#handoff").innerHTML = `<p><span class="pill">${id}</span></p><pre>${esc(JSON.stringify(await r.json(), null, 2))}</pre>`;
+}
+async function newSession() {
+  const user_id = $("#user").value;
+  const r = await fetch("/api/session", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({user_id, faults: $("#faults").value})});
+  const s = await r.json(); session = s.session_id;
+  $("#messages").innerHTML = ""; $("#trace").innerHTML = ""; $("#case").innerHTML = "";
+  $("#handoff").innerHTML = "<p style='color:var(--muted)'>No escalation yet.</p>"; $("#usage").textContent = "-";
+  addMsg("status", `Signed in as ${esc(s.user)} · case ${s.case_id}${$("#faults").value ? " · fault: " + $("#faults").value : ""}`);
+  $("#examples").innerHTML = "";
+  if (EXAMPLES[user_id]) { const b = document.createElement("button"); b.className = "ghost"; b.textContent = "Try: " + EXAMPLES[user_id].slice(0, 70) + "…";
+    b.onclick = () => { $("#input").value = EXAMPLES[user_id]; $("#input").focus(); }; $("#examples").appendChild(b); }
+}
+const HIDDEN_STEPS = new Set(["update_case"]);  // bookkeeping: shown in the trace panel, not to the employee
+
+function progressCard() {
+  const bubble = addMsg("bot", `<details class="progress" open><summary>Working on it…</summary><ul class="steps"></ul>
+    <div class="reasoning"></div></details><div class="draft"></div>`);
+  const card = {bubble, steps: bubble.querySelector(".steps"), reasoning: bubble.querySelector(".reasoning"),
+    draft: bubble.querySelector(".draft"), summary: bubble.querySelector("summary"), draftText: "", thinking: "",
+    started: Date.now(), count: 0};
+  card.flushDraft = () => {  // text written before a tool call is narration ("Let me check...") -> becomes a step
+    if (card.draftText.trim()) { const li = document.createElement("li"); li.className = "note";
+      li.innerHTML = `<span class="icon">·</span><span>${esc(card.draftText.trim())}</span>`; card.steps.appendChild(li); }
+    card.draftText = ""; card.draft.innerHTML = "";
+  };
+  return card;
+}
+
+function onProgress(card, ev) {
+  if (ev.type === "thinking_delta") {
+    card.thinking += ev.text; card.reasoning.textContent = "Thinking: " + card.thinking.slice(-260);
+  } else if (ev.type === "text_delta") {
+    card.draftText += ev.text; card.draft.innerHTML = md(card.draftText);
+  } else if (ev.type === "tool_start") {
+    card.flushDraft(); card.thinking = ""; card.reasoning.textContent = "";
+    if (HIDDEN_STEPS.has(ev.name)) return;
+    const li = document.createElement("li"); li.id = "step-" + ev.id; card.count++;
+    li.innerHTML = `<span class="icon"><span class="spin"></span></span><span>${esc(ev.label)}</span><span class="out"></span>`;
+    card.steps.appendChild(li); card.summary.textContent = ev.label + "…";
+  } else if (ev.type === "tool_call") {
+    const li = document.getElementById("step-" + ev.id);
+    if (li) { li.className = ev.is_error ? "fail" : "done"; li.querySelector(".icon").textContent = ev.is_error ? "✕" : "✓";
+      li.querySelector(".out").textContent = ev.outcome; }
+  } else if (ev.type === "reply_reset") {
+    card.draftText = ""; card.draft.innerHTML = "";
+    const li = document.createElement("li"); li.className = "note";
+    li.innerHTML = `<span class="icon">·</span><span>Double-checking the answer against the records</span>`; card.steps.appendChild(li);
+  }
+  card.bubble.scrollIntoView({block: "end"});
+}
+
+async function send(text) {
+  if (busy || !text.trim()) return; busy = true; $("#send").disabled = true;
+  addMsg("user", md(text)); $("#input").value = "";
+  const card = progressCard();
+  const r = await fetch("/api/chat", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({session_id: session, message: text})});
+  const reader = r.body.getReader(), dec = new TextDecoder(); let buf = "";
+  while (true) {
+    const {value, done} = await reader.read(); if (done) break;
+    buf += dec.decode(value, {stream: true});
+    let i; while ((i = buf.indexOf("\n\n")) >= 0) {
+      const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+      if (!chunk.startsWith("data: ")) continue;
+      const ev = JSON.parse(chunk.slice(6));
+      if (ev.type === "done") {
+        const secs = Math.round((Date.now() - card.started) / 1000);
+        card.reasoning.remove(); card.draft.remove();
+        const details = card.bubble.querySelector(".progress");
+        if (card.count) { details.open = false; card.summary.textContent = `Checked ${card.count} thing${card.count > 1 ? "s" : ""} · ${secs}s`; }
+        else details.remove();
+        for (const n of ev.notices) card.bubble.before(Object.assign(document.createElement("div"), {className: "msg notice", textContent: n.text}));
+        card.bubble.insertAdjacentHTML("beforeend", md(ev.reply)); renderCase(ev.case);
+        const u = ev.usage; $("#usage").textContent = `${u.model_calls} model calls · ${u.tool_calls} tool calls · ${u.output_tokens} output tokens · cache read ${u.cache_read_input_tokens} · ~$${u.cost_usd}`;
+        if (ev.case.ticket_id) showHandoff(ev.case.ticket_id);
+        card.bubble.scrollIntoView({block: "end"});
+      } else if (ev.type === "error") { card.summary.textContent = "Error: " + ev.message; }
+      else { onProgress(card, ev); addEvent(ev); }
+    }
+  }
+  busy = false; $("#send").disabled = false; $("#input").focus();
+}
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tabs button, .pane").forEach(x => x.classList.remove("on"));
+  b.classList.add("on"); $("#" + b.dataset.tab).classList.add("on");
+});
+$("#form").onsubmit = e => { e.preventDefault(); send($("#input").value); };
+$("#input").onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send($("#input").value); } };
+$("#reset").onclick = newSession; $("#user").onchange = newSession; $("#faults").onchange = newSession;
+fetch("/api/users").then(r => r.json()).then(us => {
+  $("#user").innerHTML = us.map(u => `<option value="${u.user_id}">${u.name} · ${u.department}, ${u.location}</option>`).join("");
+  newSession();
+});
+</script>
+</body>
+</html>

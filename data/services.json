@@ -1,0 +1,17 @@
+[
+  {"name": "Okta", "aliases": ["okta", "sso", "single sign-on", "login", "sign in", "sign-in"], "owner_team": "Identity & Access", "health": "operational"},
+  {"name": "Salesforce", "aliases": ["salesforce", "sfdc", "crm"], "owner_team": "Business Applications", "health": "degraded"},
+  {"name": "GlobalProtect VPN", "aliases": ["vpn", "globalprotect", "global protect", "remote access"], "owner_team": "Network", "health": "operational"},
+  {"name": "Snowflake", "aliases": ["snowflake", "data warehouse", "warehouse"], "owner_team": "Data Platform", "health": "operational"},
+  {"name": "Grafana", "aliases": ["grafana", "dashboards", "monitoring dashboards"], "owner_team": "SRE", "health": "operational"},
+  {"name": "Jenkins", "aliases": ["jenkins", "ci", "build server", "pipeline", "etl jobs"], "owner_team": "Data Platform", "health": "operational"},
+  {"name": "Tableau", "aliases": ["tableau", "reports", "bi"], "owner_team": "Data Platform", "health": "operational"},
+  {"name": "Microsoft 365", "aliases": ["outlook", "email", "mail", "teams", "office", "excel", "word", "onedrive", "m365"], "owner_team": "Workplace Technology", "health": "operational"},
+  {"name": "Zoom", "aliases": ["zoom", "video call", "meeting audio"], "owner_team": "Workplace Technology", "health": "operational"},
+  {"name": "Slack", "aliases": ["slack"], "owner_team": "Workplace Technology", "health": "operational"},
+  {"name": "Printing", "aliases": ["printer", "print", "printing", "papercut"], "owner_team": "Endpoint & Workplace Support", "health": "partial_outage"},
+  {"name": "Corporate Wi-Fi", "aliases": ["wifi", "wi-fi", "wireless", "corp-wifi"], "owner_team": "Network", "health": "operational"},
+  {"name": "Laptop", "aliases": ["laptop", "computer", "macbook", "pc", "device", "self service", "jamf", "intune"], "owner_team": "Endpoint & Workplace Support", "health": "operational"},
+  {"name": "GitHub", "aliases": ["github", "git"], "owner_team": "Developer Productivity", "health": "operational"},
+  {"name": "Jira", "aliases": ["jira", "tickets board"], "owner_team": "Developer Productivity", "health": "operational"}
+]
