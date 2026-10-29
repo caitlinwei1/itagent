@@ -198,16 +198,24 @@ def test_software_facts():
     assert facts.software_state(user, approved, "Excel")["approved"] is None
 
 
-def test_mailbox_is_described_against_the_quota(ctx):
+def test_mailbox_is_described_against_its_own_limits(ctx):
     from helpdesk import facts
     ctx.user = ctx.world.users["u-jordan"]
     result, _ = execute(ctx, "get_account_diagnostics", {"area": "mailbox"})
     m = facts.mailbox_state(ctx.user)
     assert set(result) == {"evidence_id", "text"}
-    assert f"{m['used_gb']} GB used of a {m['quota_gb']} GB quota" in result["text"]  # the text shows the fact's values
-    assert "0.4 GB left" in result["text"] and "has not been reached" in result["text"]
-    assert facts.mailbox_state({"diagnostics": {"mailbox": {"measured_at": "2026-10-22T13:00:00Z", "size_gb": 50, "quota_gb": 50}}})["over_quota"]
+    assert m["state"] == "send_blocked" and "sending is blocked; receiving still works" in result["text"]
+    assert f"stops sending at {m['send_limit_gb']} GB" in result["text"]  # the limits come from the record only
+    limits = {"measured_at": "t", "warning_gb": 49, "send_limit_gb": 49.5, "quota_gb": 50}
+    state = lambda gb: facts.mailbox_state({"diagnostics": {"mailbox": {**limits, "size_gb": gb}}})["state"]  # noqa: E731
+    assert [state(10), state(49.2), state(49.5), state(50)] == ["ok", "warning", "send_blocked", "full"]
     assert facts.mailbox_state({"diagnostics": {}}) is None
+
+
+def test_the_knowledge_base_does_not_restate_mailbox_limits():
+    from helpdesk.config import DATA_DIR
+    body = (DATA_DIR / "kb" / "KB-151-outlook-mailbox.md").read_text().split("---")[-1]
+    assert " GB" not in body  # the numbers live in the mailbox record only
 
 
 def test_status_says_whether_an_incident_covers_the_employee_and_when_changes_happened(ctx):

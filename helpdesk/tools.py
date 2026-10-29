@@ -47,7 +47,7 @@ class Diagnostics(BaseModel):
     area: Literal["sign_in", "vpn", "devices", "access", "app_performance", "mailbox", "team_jobs"] = Field(
         description="sign_in: Okta account state and sign-in log. vpn: VPN session log. devices: laptops/phones with "
                     "installed versions and disk. access: current access and the access catalog. app_performance: page "
-                    "load times. mailbox: size and quota. team_jobs: the employee's team's scheduled data jobs and runs.")
+                    "load times. mailbox: size and its limits. team_jobs: the employee's team's scheduled data jobs and runs.")
 
 
 class SearchHistory(BaseModel):
@@ -286,14 +286,20 @@ def get_account_diagnostics(ctx: ToolContext, a: Diagnostics) -> dict:
         return {"text": describe_access(u, ctx.policy.resources),
                 "record": {"department": u["department"], "current_access": u["access"]}}
     if a.area == "mailbox" and (m := facts.mailbox_state(u)):
-        reached = "The quota has been reached." if m["over_quota"] else "The quota has not been reached."
-        return {"text": f"Mailbox, as of {_utc(m['as_of'])}: {m['used_gb']} GB used of a {m['quota_gb']} GB quota ({m['percent']}%), "
-                        f"{m['left_gb']} GB left. {reached}", "record": u["diagnostics"]["mailbox"]}
+        return {"text": f"Mailbox, as of {_utc(m['as_of'])}: {m['used_gb']} GB used. This mailbox's limits: Outlook "
+                        f"warns at {m['warning_gb']} GB, stops sending at {m['send_limit_gb']} GB, and stops sending "
+                        f"and receiving at {m['quota_gb']} GB. {MAILBOX_WORDS[m['state']]}",
+                "record": u["diagnostics"]["mailbox"]}
     data = u["diagnostics"].get(a.area)
     if not data:
         return {"area": a.area, "records": [], "note": "No records of this kind for this employee."}
     return {"area": a.area, "records": data}
 
+
+MAILBOX_WORDS = {"ok": "It is under all three limits.",
+                 "warning": "It is past the warning limit; sending and receiving still work.",
+                 "send_blocked": "It is past the send limit, so sending is blocked; receiving still works.",
+                 "full": "It is at the full limit, so sending and receiving are both blocked."}
 
 APPROVAL_WORDS = {"none": "granted on request, no approval", "manager": "needs the manager's approval",
                   "manager+data_owner": "needs the manager's and the data owner's approval",

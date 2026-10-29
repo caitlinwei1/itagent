@@ -47,14 +47,16 @@ def software_state(user: dict, approved: dict[str, str], app: str) -> dict:
 
 
 def mailbox_state(user: dict) -> dict | None:
-    """Mailbox size against the quota, from the mailbox record (None when there is no record). What Outlook does
-    near the quota is the knowledge base's to say, not a fact computed here."""
+    """Mailbox size against the mailbox's own three limits, from the mailbox record (None when there is no record):
+    "ok", "warning" (Outlook warns), "send_blocked" (sending stops, receiving works) or "full" (both stop)."""
     m = user.get("diagnostics", {}).get("mailbox")
     if not m:
         return None
-    used, quota = m["size_gb"], m["quota_gb"]
-    return {"as_of": m["measured_at"], "used_gb": used, "quota_gb": quota, "left_gb": round(quota - used, 2),
-            "percent": round(100 * used / quota, 1), "over_quota": used >= quota}
+    used = m["size_gb"]
+    state = ("full" if used >= m["quota_gb"] else "send_blocked" if used >= m["send_limit_gb"]
+             else "warning" if used >= m["warning_gb"] else "ok")
+    return {"as_of": m["measured_at"], "used_gb": used, "warning_gb": m["warning_gb"],
+            "send_limit_gb": m["send_limit_gb"], "quota_gb": m["quota_gb"], "state": state}
 
 
 def open_incidents(incidents: list[dict]) -> list[dict]:

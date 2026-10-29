@@ -78,7 +78,7 @@
    "devices": [{"asset_id": "LT-1733", "inventory_at": "2026-10-22T06:00:00Z", "type": "laptop", "model": "Lenovo ThinkPad X1 Carbon", "os": "Windows 11 24H2", "managed": true,
                 "software": {"GlobalProtect": "6.2.3", "Excel": "16.0", "PaperCut Client": "22.1"}, "disk_free_gb": 3.1, "disk_total_gb": 256}],
    "access": ["tableau-viewer", "jira"],
-   "diagnostics": {"mailbox": {"measured_at": "2026-10-22T13:00:00Z", "size_gb": 49.6, "quota_gb": 50}}},
+   "diagnostics": {"mailbox": {"measured_at": "2026-10-22T13:00:00Z", "size_gb": 49.6, "warning_gb": 49, "send_limit_gb": 49.5, "quota_gb": 50}}},
 
   {"user_id": "u-ken", "name": "Ken Watanabe", "email": "ken.watanabe@acme.example", "department": "Engineering", "title": "Software Engineer",
    "location": "San Francisco", "manager_id": "u-ana", "employment_status": "active", "start_date": "2025-05-05", "phone_last4": "3318",
