@@ -11,7 +11,7 @@ def world():
 
 
 def engine(world):
-    return PolicyEngine(world.policy, world.users)
+    return PolicyEngine(world.policy, world.users, world.incidents)
 
 
 def case(user_id, verified=False, offered=None):
@@ -128,3 +128,10 @@ def test_approval_needed(world):
     assert facts.approval_needed(world.users["u-priya"], r["grafana-viewer"]) == "manager"  # not eligible
     assert facts.approval_needed(world.users["u-alex"], r["snowflake-prod-read"]) == "manager+data_owner"
     assert facts.approval_needed(world.users["u-alex"], r["snowflake-prod-write"]) == "not_requestable"
+
+
+def test_linking_to_an_incident_needs_the_records_to_put_the_employee_in_its_scope(world):
+    e = engine(world)
+    link = lambda uid: e.evaluate("add_user_to_incident", world.users[uid], case(uid), "INC-2051")  # noqa: E731
+    assert link("u-david").decision == "allow"  # Chicago; INC-2051 covers Chicago
+    assert link("u-priya").missing == ["incident_covers_employee"]  # remote in Austin

@@ -226,7 +226,7 @@ def check_system_status(ctx: ToolContext, a: CheckStatus) -> dict:
     record, lines = [], [f"Your location: {user['location']}."]
     for name in known:
         svc = next(s for s in ctx.world.services if s["name"] == name)
-        incidents = [i for i in ctx.world.incidents if i["service"] == name and i["status"] != "resolved"]
+        incidents = [i for i in facts.open_incidents(ctx.world.incidents) if i["service"] == name]
         changes = [c for c in ctx.world.changes if c["service"] == name or
                    (name in ("Jenkins", "Tableau") and c["service"] == "Snowflake")]
         record.append({"service": name, "owner_team": svc["owner_team"], "health": svc["health"],
@@ -436,10 +436,7 @@ def perform_action(ctx: ToolContext, a: PerformAction) -> dict:
         readback = {"device": after["device"], "installed_version_now": after["installed"],
                     "note": "Install takes about 3 minutes and needs a VPN reconnect."}
     elif a.action == "add_user_to_incident":
-        inc = next((i for i in world.incidents if i["id"] == a.target and i["status"] != "resolved"), None)
-        if inc is None:
-            ctx.record_action(a.action, a.target, "invalid", False, "No open incident with that id.")
-            return {"executed": False, "decision": "invalid", "reason": f"No open incident {a.target}."}
+        inc = next(i for i in facts.open_incidents(world.incidents) if i["id"] == a.target)  # policy checked it
         if u["user_id"] not in inc["affected_users"]:
             inc["affected_users"].append(u["user_id"])
             inc["affected_user_count"] += 1

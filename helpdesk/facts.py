@@ -57,6 +57,11 @@ def mailbox_state(user: dict) -> dict | None:
             "percent": round(100 * used / quota, 1), "over_quota": used >= quota}
 
 
+def open_incidents(incidents: list[dict]) -> list[dict]:
+    """The incidents that aren't resolved yet."""
+    return [i for i in incidents if i["status"] != "resolved"]
+
+
 def incident_covers(incident: dict, user: dict) -> bool:
     """The incident's affected locations include where the employee works ("all" means everyone)."""
     scope = incident["affected_locations"]

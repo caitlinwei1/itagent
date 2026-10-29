@@ -36,18 +36,22 @@ PRECONDITION_HINTS = {
     "package_approved": "That software or version is not on the approved list.",
     "device_managed": "The employee has no managed laptop for Self Service to push to.",
     "not_already_current": "The approved version is already installed; there is nothing to push.",
+    "incident_covers_employee": "The records don't put the employee in this incident's scope: its affected locations "
+                                "don't include where they work (or no open incident has that id). Troubleshoot their "
+                                "own case instead.",
     "employee_consent": "Ask the employee whether they want this exact change, naming it, and wait for their answer. "
                         "Then pass their own words in consent_words. A verification code is not agreement.",
 }
 
 
 class PolicyEngine:
-    def __init__(self, policy: dict, users: dict[str, dict]):
+    def __init__(self, policy: dict, users: dict[str, dict], incidents: list[dict]):
         self.actions = policy["actions"]
         self.resources = policy["resources"]
         self.approved_software = policy["approved_software"]
         self.teams = policy["teams"]
         self.users = users
+        self.incidents = incidents
         self.fix_actions = frozenset(a for a, rule in self.actions.items() if rule.get("fix"))
 
     def _precondition(self, name: str, user: dict, case: CaseFrame, target: str | None,
@@ -56,6 +60,9 @@ class PolicyEngine:
             resource = self.resources.get(target or "", {})
             names = [target, resource.get("name"), (resource.get("name") or "").split(" ")[0]]
             return consent_given(case, consent_words, names)
+        if name == "incident_covers_employee":
+            incident = next((i for i in facts.open_incidents(self.incidents) if i["id"] == target), None)
+            return incident is not None and facts.incident_covers(incident, user)
         if name == "identity_verified":
             return case.identity_verified
         if name == "account_locked":

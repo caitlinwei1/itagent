@@ -11,7 +11,7 @@ def ctx(tmp_path, monkeypatch):
     monkeypatch.setattr("helpdesk.tools.VAR_DIR", tmp_path)
     world = World.load().fork()
     user = world.users["u-maya"]
-    return ToolContext(world=world, policy=PolicyEngine(world.policy, world.users),
+    return ToolContext(world=world, policy=PolicyEngine(world.policy, world.users, world.incidents),
                        case=CaseFrame(case_id="t", user_id="u-maya"), user=user, trace_id="t")
 
 
@@ -233,6 +233,7 @@ def test_access_says_what_is_already_held_and_what_getting_the_rest_takes(ctx):
 
 
 def test_linking_to_an_incident_promises_no_updates(ctx):
+    ctx.user = ctx.world.users["u-david"]  # Chicago, inside INC-2051's scope
     result, _ = execute(ctx, "perform_action", {"action": "add_user_to_incident", "target": "INC-2051",
                                                 "justification": "affected"})
     assert result["executed"] and "subscribed" not in result["detail"] and "Nothing here sends" in result["detail"]
