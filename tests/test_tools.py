@@ -44,10 +44,10 @@ def test_wrong_code_does_not_verify_and_locks_after_three(ctx):
 
 def test_unlock_flow_changes_account_and_audits(ctx):
     blocked, _ = execute(ctx, "perform_action", {"action": "unlock_account", "justification": "locked"})
-    assert blocked["executed"] is False
+    assert blocked["record"]["executed"] is False
     verify(ctx)
     done, _ = execute(ctx, "perform_action", {"action": "unlock_account", "justification": "locked"})
-    assert done["executed"] and ctx.user["account"]["status"] == "active"
+    assert done["record"]["executed"] and ctx.user["account"]["status"] == "active"
     assert [a.executed for a in ctx.case.actions] == [False, True]
 
 
@@ -79,7 +79,7 @@ def close_resolved(ctx, words):
 def test_resolved_needs_the_employees_own_words_after_the_fix(ctx):
     say(ctx, "I can't log into Okta, I'm locked out")
     verify(ctx)
-    assert execute(ctx, "perform_action", {"action": "unlock_account", "justification": "locked"})[0]["executed"]
+    assert execute(ctx, "perform_action", {"action": "unlock_account", "justification": "locked"})[0]["record"]["executed"]
     assert close_resolved(ctx, None)[1] and ctx.case.status == "open"  # no words at all
     assert close_resolved(ctx, "it works now")[1]  # words the employee never sent
     assert close_resolved(ctx, "I'm locked out")[1]  # sent before the unlock, so it can't confirm it
@@ -181,10 +181,10 @@ def test_a_push_to_an_app_already_at_the_approved_version_is_refused(ctx):
     say(ctx, "yes please")
     same, _ = execute(ctx, "perform_action", {"action": "push_software_update", "target": "GlobalProtect",
                                               "justification": "x", "consent_words": "yes please"})
-    assert same["executed"] is False and "not_already_current" in same["missing_preconditions"]
+    assert same["record"]["executed"] is False and "not_already_current" in same["record"]["missing_preconditions"]
     pushed, _ = execute(ctx, "perform_action", {"action": "push_software_update", "target": "Docker Desktop",
                                                 "justification": "x", "consent_words": "yes please"})
-    assert pushed["executed"] and pushed["readback"]["installed_version_now"] == "4.38"  # read again after the write
+    assert pushed["record"]["executed"] and pushed["record"]["readback"]["installed_version_now"] == "4.38"  # read again after the write
 
 
 def test_software_facts():
@@ -206,7 +206,7 @@ def test_mailbox_is_described_against_the_quota(ctx):
     assert set(result) == {"evidence_id", "text"}
     assert f"{m['used_gb']} GB used of a {m['quota_gb']} GB quota" in result["text"]  # the text shows the fact's values
     assert "0.4 GB left" in result["text"] and "has not been reached" in result["text"]
-    assert facts.mailbox_state({"diagnostics": {"mailbox": {"size_gb": 50, "quota_gb": 50}}})["over_quota"]
+    assert facts.mailbox_state({"diagnostics": {"mailbox": {"measured_at": "2026-10-22T13:00:00Z", "size_gb": 50, "quota_gb": 50}}})["over_quota"]
     assert facts.mailbox_state({"diagnostics": {}}) is None
 
 
@@ -236,7 +236,8 @@ def test_linking_to_an_incident_promises_no_updates(ctx):
     ctx.user = ctx.world.users["u-david"]  # Chicago, inside INC-2051's scope
     result, _ = execute(ctx, "perform_action", {"action": "add_user_to_incident", "target": "INC-2051",
                                                 "justification": "affected"})
-    assert result["executed"] and "subscribed" not in result["detail"] and "Nothing here sends" in result["detail"]
+    assert result["record"]["executed"] and "Nothing here sends" in result["text"]
+    assert "Only this employee was added" in result["text"]  # the employee's teammates are not added by this
 
 
 def test_ticket_urgency_comes_from_the_case_and_its_deadline():
@@ -303,7 +304,7 @@ def test_an_approval_request_is_filed_once_per_case(ctx):
     args = {"action": "request_access_approval", "target": "snowflake-prod-read", "justification": "pipeline work"}
     first, _ = execute(ctx, "perform_action", args)
     again, _ = execute(ctx, "perform_action", args)
-    assert first["executed"] and again["already_done"] and len(ctx.world.approval_requests) == 1
+    assert first["record"]["executed"] and again["record"]["already_done"] and len(ctx.world.approval_requests) == 1
     assert sum(1 for x in ctx.case.actions if x.action == "request_access_approval") == 1
 
 
@@ -314,3 +315,33 @@ def test_hypothesis_status_has_one_definition():
     assert "confirmed" not in get_args(case.HypothesisStatus)  # code never establishes a cause
     assert tools.HypothesisIn.model_fields["status"].annotation is case.HypothesisStatus
     assert tools.ClaimIn.model_fields["status"].annotation is case.ClaimStatus
+
+
+def test_every_action_result_is_text(ctx):
+    """The model reads what an action did in words; the raw fields go to the UI and tests only."""
+    refused, _ = execute(ctx, "perform_action", {"action": "unlock_account", "justification": "locked"})
+    verify(ctx)
+    done, _ = execute(ctx, "perform_action", {"action": "unlock_account", "justification": "locked"})
+    ctx.user = ctx.world.users["u-alex"]
+    args = {"action": "request_access_approval", "target": "snowflake-prod-read", "justification": "pipeline work"}
+    filed, _ = execute(ctx, "perform_action", args)
+    again, _ = execute(ctx, "perform_action", args)
+    for result in (refused, done, filed, again):
+        assert set(result) == {"text", "record"}
+    assert refused["text"].startswith("Not done.") and done["text"].startswith("Done.")
+    assert "password and the employee's devices were not changed" in done["text"]
+    assert again["text"].startswith("Already done")
+
+
+def test_snapshot_records_say_when_they_were_taken(ctx):
+    from helpdesk.tools import describe_devices
+    for user in ctx.world.users.values():
+        text = describe_devices(user, ctx.policy.approved_software)
+        assert text.count("inventory as of") == len(user["devices"]), user["user_id"]
+    ctx.user = ctx.world.users["u-jordan"]
+    assert "as of" in execute(ctx, "get_account_diagnostics", {"area": "mailbox"})[0]["text"]
+
+
+def test_access_says_software_is_in_the_devices_records(ctx):
+    text = execute(ctx, "get_account_diagnostics", {"area": "access"})[0]["text"]
+    assert "Software is not in this catalog" in text and "devices records" in text

@@ -143,9 +143,11 @@ class HelpdeskAgent:
                     emit({"type": "tool_start", "id": block.id, "name": block.name, "label": label})
                     t0 = time.time()
                     result, is_error = execute(self.ctx, block.name, block.input)
+                    record = result.pop("record", None) or self._record(result)  # raw fields: UI and trace only
                     emit({"type": "tool_call", "id": block.id, "name": block.name, "label": label,
-                          "outcome": step_outcome(block.name, result, is_error, self._record(result)), "input": block.input,
-                          "result": result, "is_error": is_error, "ms": int((time.time() - t0) * 1000)})
+                          "outcome": step_outcome(block.name, result, is_error, record), "input": block.input,
+                          "result": result, "record": record, "is_error": is_error,
+                          "ms": int((time.time() - t0) * 1000)})
                 results.append({"type": "tool_result", "tool_use_id": block.id,
                                 "content": json.dumps(result, ensure_ascii=False, default=str), "is_error": is_error})
             # All results go back in one message so the model keeps making parallel calls.

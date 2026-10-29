@@ -53,7 +53,7 @@ def mailbox_state(user: dict) -> dict | None:
     if not m:
         return None
     used, quota = m["size_gb"], m["quota_gb"]
-    return {"used_gb": used, "quota_gb": quota, "left_gb": round(quota - used, 2),
+    return {"as_of": m["measured_at"], "used_gb": used, "quota_gb": quota, "left_gb": round(quota - used, 2),
             "percent": round(100 * used / quota, 1), "over_quota": used >= quota}
 
 

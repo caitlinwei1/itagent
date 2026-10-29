@@ -287,7 +287,7 @@ def get_account_diagnostics(ctx: ToolContext, a: Diagnostics) -> dict:
                 "record": {"department": u["department"], "current_access": u["access"]}}
     if a.area == "mailbox" and (m := facts.mailbox_state(u)):
         reached = "The quota has been reached." if m["over_quota"] else "The quota has not been reached."
-        return {"text": f"Mailbox: {m['used_gb']} GB used of a {m['quota_gb']} GB quota ({m['percent']}%), "
+        return {"text": f"Mailbox, as of {_utc(m['as_of'])}: {m['used_gb']} GB used of a {m['quota_gb']} GB quota ({m['percent']}%), "
                         f"{m['left_gb']} GB left. {reached}", "record": u["diagnostics"]["mailbox"]}
     data = u["diagnostics"].get(a.area)
     if not data:
@@ -311,6 +311,8 @@ def describe_access(user: dict, resources: dict) -> str:
         how = APPROVAL_WORDS[need] + (" (your department is not on its auto-approved list)"
                                       if r["approval"] == "auto" and need == "manager" else "")
         lines.append(f"- {r['name']} ({rid}): not held; {how}; usual turnaround {r.get('typical_turnaround', 'unknown')}.")
+    lines.append("Software is not in this catalog: the approved software list, and what is installed on each device, "
+                 "are in the devices records.")
     return "\n".join(lines)
 
 
@@ -319,7 +321,7 @@ def describe_devices(user: dict, approved: dict[str, str]) -> str:
     lines = []
     for d in user["devices"]:
         managed = "managed" if d["managed"] else "not managed"
-        lines.append(f"{d['asset_id']} ({d['model']}, {d['os']}, {managed}):")
+        lines.append(f"{d['asset_id']} ({d['model']}, {d['os']}, {managed}), inventory as of {_utc(d['inventory_at'])}:")
         for app in d.get("software", {}):
             s = facts.software_state(user, approved, app) if d is facts.managed_laptop(user) else None
             version = facts.installed_version(d, app)
@@ -391,34 +393,42 @@ def confirm_identity_code(ctx: ToolContext, a: ConfirmCode) -> dict:
 # ---- actions --------------------------------------------------------------------------------------
 
 def perform_action(ctx: ToolContext, a: PerformAction) -> dict:
+    """Runs an action through policy. The model gets one text: what was done, read back after the write, and what it
+    did not change; the raw fields go in `record` for the UI and tests."""
     if ctx.policy.actions[a.action].get("once_per_case"):  # policy says this action never repeats in a case
         earlier = next((x for x in ctx.case.actions if x.action == a.action and x.target == a.target and x.executed), None)
         if earlier:
-            return {"executed": True, "already_done": True, "detail": earlier.detail,
-                    "note": "This was already done earlier in this case; nothing was repeated."}
+            return {"text": f"Already done earlier in this case, so nothing was repeated: {earlier.detail}",
+                    "record": {"executed": True, "already_done": True, "detail": earlier.detail}}
     decision = ctx.policy.evaluate(a.action, ctx.user, ctx.case, a.target, a.consent_words)
     if decision.decision != "allow":
         ctx.record_action(a.action, a.target, decision.decision, False, decision.reason, decision.team)
-        out = {"executed": False, **decision.as_dict()}
+        text = f"Not done. Policy decision: {decision.decision}. {decision.reason}"
+        if decision.approvers:
+            text += f" Approvers: {', '.join(decision.approvers)}."
         if decision.decision == "human_only":
-            out["next"] = f"This needs {decision.team or 'a human team'}: escalate_to_human."
+            text += f" This needs {decision.team or 'a human team'}: escalate_to_human."
         elif decision.decision == "needs_approval":
-            out["next"] = "Use perform_action request_access_approval for this resource."
-        return out
+            text += " Use perform_action request_access_approval for this resource."
+        return {"text": text, "record": {"executed": False, **decision.as_dict()}}
 
     u, world = ctx.user, ctx.world
     if a.action == "unlock_account":
         u["account"].update(status="active", failed_signins=0, locked_at=None)
         detail = "Okta account unlocked."
         readback = {"account_status_now": u["account"]["status"]}
+        after = (f"Account status now: {readback['account_status_now']}. The password and the employee's devices "
+                 f"were not changed.")
     elif a.action == "send_password_reset_link":
         ctx.notices.append({"type": "email", "text": f"[Simulated email to recovery address of {u['name']}] "
                                                      f"Password reset link (valid 30 minutes)."})
         detail, readback = "Password reset link sent to the recovery email.", {}
+        after = "The link is valid for 30 minutes. The password stays the same until the employee uses it."
     elif a.action == "grant_access":
         u["access"].append(a.target)
         detail = f"Granted {ctx.policy.resources[a.target]['name']}."
         readback = {"now_held": facts.has_access(u, a.target)}  # read again through the fact function
+        after = f"The employee holds it now: {'yes' if readback['now_held'] else 'no'}. Nothing else was granted."
     elif a.action == "request_access_approval":
         request_id = _next_id("REQ", _REQUEST_SEQ)
         world.approval_requests.append({"request_id": request_id, "user_id": u["user_id"], "resource": a.target,
@@ -427,27 +437,33 @@ def perform_action(ctx: ToolContext, a: PerformAction) -> dict:
         detail = f"Approval request {request_id} filed; approvers: {', '.join(decision.approvers)}."
         readback = {"request_id": request_id, "approvers": decision.approvers,
                     "typical_turnaround": ctx.policy.resources[a.target].get("typical_turnaround")}
+        after = (f"Usual turnaround: {readback['typical_turnaround'] or 'unknown'}. Nothing is granted until the "
+                 f"approvers approve.")
     elif a.action == "push_software_update":
         version = facts.software_state(u, ctx.policy.approved_software, a.target)["approved"]
         laptop = facts.managed_laptop(u)
         laptop["software"][a.target] = version
+        laptop["inventory_at"] = ctx.now or utcnow()  # the push reports the new version, so the device record is current now
         detail = f"Pushed {a.target} {version} to {laptop['asset_id']} via Self Service."
-        after = facts.software_state(u, ctx.policy.approved_software, a.target)  # read again, not the value written
-        readback = {"device": after["device"], "installed_version_now": after["installed"],
-                    "note": "Install takes about 3 minutes and needs a VPN reconnect."}
+        state = facts.software_state(u, ctx.policy.approved_software, a.target)  # read again, not the value written
+        readback = {"device": state["device"], "installed_version_now": state["installed"]}
+        after = (f"Installed version now: {state['installed']}. The install takes about 3 minutes and needs a VPN "
+                 f"reconnect. Nothing else on the laptop was changed.")
     elif a.action == "add_user_to_incident":
         inc = next(i for i in facts.open_incidents(world.incidents) if i["id"] == a.target)  # policy checked it
         if u["user_id"] not in inc["affected_users"]:
             inc["affected_users"].append(u["user_id"])
             inc["affected_user_count"] += 1
-        detail = (f"Added to {inc['id']} as an affected user. Nothing here sends the employee updates; they can ask "
-                  f"for the incident's status at any time.")
+        detail = f"Added {u['name']} to {inc['id']} as an affected user."
         readback = {"incident": inc["id"], "affected_user_count_now": inc["affected_user_count"], "eta": inc["eta"]}
+        after = (f"Only this employee was added; this adds nobody else. The incident now lists "
+                 f"{inc['affected_user_count']} affected users. Current ETA: {_utc(inc['eta'])}. Nothing here sends "
+                 f"the employee updates; they can ask for the incident's status at any time.")
     else:  # unreachable: the schema limits actions
         raise ValueError(a.action)
 
     ctx.record_action(a.action, a.target, "allow", True, detail)
-    return {"executed": True, "detail": detail, "readback": readback}
+    return {"text": f"Done. {detail} {after}", "record": {"executed": True, "detail": detail, "readback": readback}}
 
 
 # ---- case bookkeeping -----------------------------------------------------------------------------
@@ -600,7 +616,8 @@ TOOLS: list[Tool] = [
     Tool("confirm_identity_code", "Check the code the employee typed. Only this tool can mark identity as verified.",
          ConfirmCode, confirm_identity_code, "write"),
     Tool("perform_action", "Make a change. The policy engine decides whether it runs; the result says what "
-         "actually happened. Never tell the employee something was done unless executed is true.",
+         "actually happened, read back after the change, and what it did not change. Never tell the employee "
+         "something was done unless the result starts with \"Done.\"",
          PerformAction, perform_action, "write"),
     Tool("update_case", "Record your understanding of the case: request type, systems, symptom, goal, deadline, "
          "employee claims and candidate causes. Confirming or ruling out a cause requires evidence ids.",
@@ -719,7 +736,8 @@ def step_outcome(name: str, result: dict, is_error: bool, record: dict | None = 
     if name == "check_policy":
         return result.get("decision", "").replace("_", " ")
     if name == "perform_action":
-        return "done" if result.get("executed") else "not allowed: " + result.get("decision", "").replace("_", " ")
+        r = record or result
+        return "done" if r.get("executed") else "not allowed: " + r.get("decision", "").replace("_", " ")
     if name == "confirm_identity_code":
         return result.get("status", "").replace("_", " ")
     if name == "escalate_to_human":
