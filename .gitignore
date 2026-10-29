@@ -3,6 +3,7 @@
 __pycache__/
 .pytest_cache/
 var/
-evals/reports/*.json
 .DS_Store
 .vscode/
+evals/reports/
+docs/eval_notes.md
