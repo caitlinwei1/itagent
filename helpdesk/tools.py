@@ -388,6 +388,11 @@ def confirm_identity_code(ctx: ToolContext, a: ConfirmCode) -> dict:
 # ---- actions --------------------------------------------------------------------------------------
 
 def perform_action(ctx: ToolContext, a: PerformAction) -> dict:
+    if ctx.policy.actions[a.action].get("once_per_case"):  # policy says this action never repeats in a case
+        earlier = next((x for x in ctx.case.actions if x.action == a.action and x.target == a.target and x.executed), None)
+        if earlier:
+            return {"executed": True, "already_done": True, "detail": earlier.detail,
+                    "note": "This was already done earlier in this case; nothing was repeated."}
     decision = ctx.policy.evaluate(a.action, ctx.user, ctx.case, a.target, a.consent_words)
     if decision.decision != "allow":
         ctx.record_action(a.action, a.target, decision.decision, False, decision.reason, decision.team)

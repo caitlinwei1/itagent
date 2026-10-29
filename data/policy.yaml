@@ -15,6 +15,7 @@ actions:
     requires: [identity_verified, account_locked]
     description: Unlock the employee's own Okta account after a lockout.
   send_password_reset_link:
+    once_per_case: true              # a second call returns the first result, nothing is repeated
     fix: true                        # a change meant to restore the employee's goal
     decision: allow
     requires: [identity_verified, account_not_suspended]
@@ -33,6 +34,7 @@ actions:
     requires: [identity_verified, employee_consent]
     description: Grant the employee access to a catalog resource.
   request_access_approval:
+    once_per_case: true              # a second call returns the first result, nothing is repeated
     decision: allow
     description: File an approval request for a catalog resource; approvers are notified.
   push_software_update:

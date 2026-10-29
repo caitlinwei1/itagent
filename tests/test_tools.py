@@ -280,3 +280,27 @@ def test_the_ticket_carries_everything_the_employee_said(ctx):
     from helpdesk import tools
     ticket = json.loads((tools.VAR_DIR / "tickets" / f"{ok['ticket_id']}.json").read_text())
     assert ticket["employee_messages"][-1] == "About 5 minutes ago, on my work laptop"
+
+
+def test_action_and_area_names_have_one_owner():
+    """policy.yaml owns the actions the agent may run; each name appears once in the tool schema and once in the
+    step labels. Adding an action means one policy entry, one Literal value, one label and one branch."""
+    from typing import get_args
+    from helpdesk import tools
+    from helpdesk.world import World
+    policy = World.load().policy["actions"]
+    runnable = {a for a, rule in policy.items() if rule["decision"] in ("allow", "by_resource")}
+    in_schema = set(get_args(tools.PerformAction.model_fields["action"].annotation))
+    assert in_schema == runnable == set(tools._ACTION_LABELS)
+    areas = set(get_args(tools.Diagnostics.model_fields["area"].annotation))
+    assert areas == set(tools._AREA_LABELS)
+
+
+
+def test_an_approval_request_is_filed_once_per_case(ctx):
+    ctx.user = ctx.world.users["u-alex"]
+    args = {"action": "request_access_approval", "target": "snowflake-prod-read", "justification": "pipeline work"}
+    first, _ = execute(ctx, "perform_action", args)
+    again, _ = execute(ctx, "perform_action", args)
+    assert first["executed"] and again["already_done"] and len(ctx.world.approval_requests) == 1
+    assert sum(1 for x in ctx.case.actions if x.action == "request_access_approval") == 1
