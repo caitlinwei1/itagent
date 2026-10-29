@@ -50,7 +50,7 @@ class HelpdeskAgent:
         self.case = CaseFrame(case_id=case_id, user_id=user_id)
         self.tracer = Tracer(case_id)
         self.ctx = ToolContext(world=self.world, policy=PolicyEngine(self.world.policy, self.world.users),
-                               case=self.case, user=self.user, trace_id=case_id,
+                               case=self.case, user=self.user, trace_id=case_id, now=self.settings.now,
                                faults=parse_faults(self.settings.faults))
         self.messages: list[dict] = []
         self.on_event = on_event or (lambda e: None)

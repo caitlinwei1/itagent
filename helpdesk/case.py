@@ -154,9 +154,6 @@ class HandoffInput(BaseModel):
     impact: Literal["high", "medium", "low"] = Field(
         description="ITIL impact. high: many people, a whole office or a security exposure; medium: a team or "
                     "one business process; low: one person.")
-    urgency: Literal["high", "medium", "low"] = Field(
-        description="ITIL urgency. high: work is blocked and time-critical (deadline within hours) or damage grows "
-                    "fast; medium: blocked or degraded without an imminent deadline; low: can wait.")
     assignment_group: str = Field(description="The team that must act. One of the teams in the policy.")
     escalation_reason: Literal["policy_requires_human", "security_incident", "fix_failed", "root_cause_unknown",
                                "conflicting_evidence", "tool_failure", "identity_unverified",
@@ -174,6 +171,7 @@ class HandoffInput(BaseModel):
 
 class Handoff(HandoffInput):
     ticket_id: str
+    urgency: str  # from the case record (see handoff_urgency())
     priority: str  # computed by code from impact x urgency (see priority())
     employee_words: str  # the employee's first message, verbatim (KCS: capture the requester's context)
     created_at: str
@@ -196,6 +194,23 @@ _MATRIX = {("high", "high"): "P1", ("high", "medium"): "P2", ("high", "low"): "P
            ("low", "high"): "P3", ("low", "medium"): "P4", ("low", "low"): "P4"}
 
 RESPONSE_TARGETS = {"P1": "15 minutes", "P2": "1 hour", "P3": "4 business hours", "P4": "2 business days"}
+
+
+_URGENCY = {"critical": "high", "high": "high", "normal": "medium", "low": "low"}
+
+
+def handoff_urgency(case: "CaseFrame", now_iso: str) -> str:
+    """The ticket's urgency from the case's one urgency field, raised to high when the employee's deadline is
+    within 24 hours of now (a deadline the model recorded but couldn't parse leaves the urgency as it is)."""
+    urgency = _URGENCY[case.urgency]
+    if case.deadline:
+        try:
+            parse = lambda t: datetime.fromisoformat(t.replace("Z", "+00:00"))  # noqa: E731
+            if (parse(case.deadline) - parse(now_iso)).total_seconds() <= 24 * 3600:
+                urgency = "high"
+        except ValueError:
+            pass
+    return urgency
 
 
 def priority(impact: str, urgency: str, security: bool = False) -> str:

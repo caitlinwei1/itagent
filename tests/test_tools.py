@@ -110,7 +110,8 @@ def test_status_changes_only_in_transition():
 
 def test_escalation_validates_and_computes_priority(ctx):
     execute(ctx, "get_account_diagnostics", {"area": "sign_in"})
-    handoff = {"summary": "s", "impact": "low", "urgency": "high", "assignment_group": "Identity & Access",
+    execute(ctx, "update_case", {"urgency": "high"})  # the ticket's urgency comes from the case record
+    handoff = {"summary": "s", "impact": "low", "assignment_group": "Identity & Access",
                "escalation_reason": "fix_failed", "user_impact": "cannot sign in", "steps_already_taken": [],
                "evidence": [{"evidence_id": "E7", "finding": "x"}], "question_for_specialist": "q",
                "recommended_next_action": "r"}
@@ -230,3 +231,16 @@ def test_linking_to_an_incident_promises_no_updates(ctx):
     result, _ = execute(ctx, "perform_action", {"action": "add_user_to_incident", "target": "INC-2051",
                                                 "justification": "affected"})
     assert result["executed"] and "subscribed" not in result["detail"] and "Nothing here sends" in result["detail"]
+
+
+def test_ticket_urgency_comes_from_the_case_and_its_deadline():
+    from helpdesk.case import handoff_urgency
+    case = CaseFrame(case_id="t", user_id="u", urgency="normal")
+    now = "2026-10-22T14:30:00Z"
+    assert handoff_urgency(case, now) == "medium"
+    case.deadline = "2026-10-23T08:00:00Z"  # tomorrow morning
+    assert handoff_urgency(case, now) == "high"
+    case.deadline = "2026-10-30T08:00:00Z"
+    assert handoff_urgency(case, now) == "medium"
+    case.deadline = "tomorrow morning"  # unparseable: left as it is
+    assert handoff_urgency(case, now) == "medium"

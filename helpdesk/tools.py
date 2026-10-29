@@ -16,7 +16,7 @@ from typing import Any, Callable, Literal
 from pydantic import BaseModel, Field, ValidationError
 
 from .case import (RESPONSE_TARGETS, ActionRecord, CaseFrame, Claim, Evidence, Handoff, HandoffInput, Hypothesis,
-                   frozen, priority, transition, utcnow)
+                   frozen, handoff_urgency, priority, transition, utcnow)
 from . import facts
 from .config import VAR_DIR
 from .policy import PolicyEngine
@@ -95,7 +95,10 @@ class UpdateCase(BaseModel):
                      "error_message", "security", "how_to", "other", "unknown"] | None = None
     user_goal: str | None = Field(None, description="What the employee is ultimately trying to get done.")
     deadline: str | None = Field(None, description="Absolute ISO time if the employee gave a deadline.")
-    urgency: Literal["low", "normal", "high", "critical"] | None = None
+    urgency: Literal["low", "normal", "high", "critical"] | None = Field(
+        None, description="How soon this hurts: high or critical when work is blocked and time-critical or damage "
+                          "grows fast; normal when blocked or degraded without an imminent deadline; low when it can "
+                          "wait. The ticket's priority comes from this and the deadline.")
     claims: list[ClaimIn] | None = Field(None, description="Full list of employee claims (replaces the previous list).")
     hypotheses: list[HypothesisIn] | None = Field(None, description="Full list of candidate causes (replaces the previous list).")
     next_step: str | None = Field(None, description="What you plan to do next.")
@@ -148,6 +151,7 @@ class ToolContext:
     case: CaseFrame
     user: dict
     trace_id: str
+    now: str = ""  # the demo's current time (Settings.now), for deadlines
     faults: dict[str, str] = field(default_factory=dict)
     notices: list[dict] = field(default_factory=list)  # messages shown to the employee by the system, not the model
     _verification_code: str | None = None
@@ -503,11 +507,12 @@ def escalate_to_human(ctx: ToolContext, a: Escalate) -> dict:
         return {"error": f"Evidence ids {bad} do not exist. Cite ids from tool results this case: {sorted(valid)}."}
 
     security = a.escalation_reason == "security_incident"
-    prio = priority(a.impact, a.urgency, security)
+    urgency = handoff_urgency(case, ctx.now)
+    prio = priority(a.impact, urgency, security)
     ticket_id = _next_id("IT", _TICKET_SEQ)
     u = ctx.user
     handoff = Handoff(
-        **a.model_dump(exclude={"kb_feedback"}), ticket_id=ticket_id, priority=prio, created_at=utcnow(),
+        **a.model_dump(exclude={"kb_feedback"}), ticket_id=ticket_id, urgency=urgency, priority=prio, created_at=utcnow(),
         employee={"user_id": u["user_id"], "name": u["name"], "email": u["email"], "department": u["department"],
                   "title": u["title"], "location": u["location"], "phone_last4": u["phone_last4"]},
         employee_words=case.employee_messages[0] if case.employee_messages else "", identity_verified=case.identity_verified, systems=case.systems,
