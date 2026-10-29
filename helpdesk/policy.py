@@ -108,10 +108,11 @@ class PolicyEngine:
         if facts.has_access(user, target):
             return Decision("invalid", f"The employee already has {resource['name']}.")
         approval = resource["approval"]
-        if approval == "not_requestable":
+        need = facts.approval_needed(user, resource)
+        if need == "not_requestable":
             return Decision("human_only", f"{resource['name']} is not requestable by individuals "
                                           f"({resource.get('typical_turnaround', '')}).", team=resource.get("team"))
-        auto_ok = approval == "auto" and facts.eligible(user, resource)
+        auto_ok = need == "none"
 
         if action == "request_access_approval":
             if auto_ok:

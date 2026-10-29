@@ -16,6 +16,16 @@ def eligible(user: dict, resource: dict) -> bool:
     return "all" in departments or user["department"] in departments
 
 
+def approval_needed(user: dict, resource: dict) -> str:
+    """What getting a catalog resource takes for this employee: "none" (granted on request), "manager",
+    "manager+data_owner" or "not_requestable". An auto-approved item outside the employee's department needs the
+    manager's approval."""
+    approval = resource["approval"]
+    if approval == "auto":
+        return "none" if eligible(user, resource) else "manager"
+    return approval
+
+
 def managed_laptop(user: dict) -> dict | None:
     """The employee's managed laptop, the only device Self Service can push to."""
     return next((d for d in user["devices"] if d["type"] == "laptop" and d["managed"]), None)

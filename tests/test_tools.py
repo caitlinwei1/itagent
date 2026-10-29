@@ -215,3 +215,12 @@ def test_status_says_whether_an_incident_covers_the_employee_and_when_changes_ha
     ctx.user = ctx.world.users["u-maya"]  # not in Chicago
     assert "does not cover your location" in execute(ctx, "check_system_status", {"systems": ["salesforce"]})[0]["text"]
     assert facts.minutes_before("2026-10-21T13:30:00Z", "2026-10-21T14:10:00Z") == 40
+
+
+def test_access_says_what_is_already_held_and_what_getting_the_rest_takes(ctx):
+    ctx.user = ctx.world.users["u-ken"]  # Engineering; already holds grafana-viewer
+    text = execute(ctx, "get_account_diagnostics", {"area": "access"})[0]["text"]
+    assert "Already held:" in text and "(grafana-viewer)" in text.split("\n")[1]
+    assert "- Grafana dashboards (viewer) (grafana-viewer): not held" not in text  # held items are not offered
+    assert "(snowflake-prod-read): not held; needs the manager's and the data owner's approval" in text
+    assert "(salesforce-standard): not held; needs the manager's approval" in text

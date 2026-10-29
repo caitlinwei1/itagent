@@ -262,7 +262,8 @@ def get_my_profile(ctx: ToolContext, a: NoArgs) -> dict:
             "location": u["location"], "start_date": u["start_date"], "employment_status": u["employment_status"],
             "manager": manager.get("name"), "account_status": u["account"]["status"],
             "devices": [{k: d[k] for k in ("asset_id", "type", "model", "os", "managed")} for d in u["devices"]],
-            "access": u["access"], "identity_verified_this_session": ctx.case.identity_verified}
+            "access_held": [rid for rid in ctx.policy.resources if facts.has_access(u, rid)],
+            "identity_verified_this_session": ctx.case.identity_verified}
 
 
 def get_account_diagnostics(ctx: ToolContext, a: Diagnostics) -> dict:
@@ -274,10 +275,8 @@ def get_account_diagnostics(ctx: ToolContext, a: Diagnostics) -> dict:
         return {"text": describe_devices(u, ctx.policy.approved_software),
                 "record": {"devices": u["devices"], "approved_software": ctx.policy.approved_software}}
     if a.area == "access":
-        catalog = {rid: {"name": r["name"], "approval": r["approval"],
-                         "eligible_departments": r.get("eligible_departments"),
-                         "typical_turnaround": r.get("typical_turnaround")} for rid, r in ctx.policy.resources.items()}
-        return {"department": u["department"], "current_access": u["access"], "catalog": catalog}
+        return {"text": describe_access(u, ctx.policy.resources),
+                "record": {"department": u["department"], "current_access": u["access"]}}
     if a.area == "mailbox" and (m := facts.mailbox_state(u)):
         reached = "The quota has been reached." if m["over_quota"] else "The quota has not been reached."
         return {"text": f"Mailbox: {m['used_gb']} GB used of a {m['quota_gb']} GB quota ({m['percent']}%), "
@@ -286,6 +285,25 @@ def get_account_diagnostics(ctx: ToolContext, a: Diagnostics) -> dict:
     if not data:
         return {"area": a.area, "records": [], "note": "No records of this kind for this employee."}
     return {"area": a.area, "records": data}
+
+
+APPROVAL_WORDS = {"none": "granted on request, no approval", "manager": "needs the manager's approval",
+                  "manager+data_owner": "needs the manager's and the data owner's approval",
+                  "not_requestable": "not requestable by individuals"}
+
+
+def describe_access(user: dict, resources: dict) -> str:
+    """Each catalog item: whether the employee already holds it, and what getting it takes for them."""
+    held = [f"{r['name']} ({rid})" for rid, r in resources.items() if facts.has_access(user, rid)]
+    lines = [f"Department: {user['department']}.", "Already held: " + (", ".join(held) or "nothing in the catalog") + "."]
+    for rid, r in resources.items():
+        if facts.has_access(user, rid):
+            continue
+        need = facts.approval_needed(user, r)
+        how = APPROVAL_WORDS[need] + (" (your department is not on its auto-approved list)"
+                                      if r["approval"] == "auto" and need == "manager" else "")
+        lines.append(f"- {r['name']} ({rid}): not held; {how}; usual turnaround {r.get('typical_turnaround', 'unknown')}.")
+    return "\n".join(lines)
 
 
 def describe_devices(user: dict, approved: dict[str, str]) -> str:
@@ -384,7 +402,7 @@ def perform_action(ctx: ToolContext, a: PerformAction) -> dict:
     elif a.action == "grant_access":
         u["access"].append(a.target)
         detail = f"Granted {ctx.policy.resources[a.target]['name']}."
-        readback = {"current_access": u["access"]}
+        readback = {"now_held": facts.has_access(u, a.target)}  # read again through the fact function
     elif a.action == "request_access_approval":
         request_id = _next_id("REQ", _REQUEST_SEQ)
         world.approval_requests.append({"request_id": request_id, "user_id": u["user_id"], "resource": a.target,

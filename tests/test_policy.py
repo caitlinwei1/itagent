@@ -95,6 +95,7 @@ def test_policy_reads_employee_facts_only_through_facts_py():
     text = Path("helpdesk/policy.py").read_text()
     assert 'user["access"]' not in text  # who holds what: facts.has_access
     assert '"all" in' not in text  # who is eligible: facts.eligible (listing the departments in a message is fine)
+    assert '== "auto" and' not in text  # what an item takes: facts.approval_needed
     assert "in self.approved_software" not in text and 'd["managed"]' not in text  # software: facts.software_state
 
 
@@ -118,3 +119,12 @@ def test_a_change_needs_the_employees_agreement_to_that_change(world):
     assert "employee_consent" in push(case("u-priya", True, "GlobalProtect"), "sure thing").missing  # not their words
     assert "employee_consent" in push(case("u-priya", True, "Zoom"), "yes, go ahead").missing  # agreed to something else
     assert "employee_consent" in push(case("u-priya", True), None).missing  # nobody asked
+
+
+def test_approval_needed(world):
+    from helpdesk import facts
+    r = world.policy["resources"]
+    assert facts.approval_needed(world.users["u-alex"], r["grafana-viewer"]) == "none"  # Data Engineering
+    assert facts.approval_needed(world.users["u-priya"], r["grafana-viewer"]) == "manager"  # not eligible
+    assert facts.approval_needed(world.users["u-alex"], r["snowflake-prod-read"]) == "manager+data_owner"
+    assert facts.approval_needed(world.users["u-alex"], r["snowflake-prod-write"]) == "not_requestable"
