@@ -6,6 +6,7 @@ data/policy.yaml plus facts code already knows (who is signed in, whether identi
 
 from dataclasses import dataclass, field
 
+from . import facts
 from .case import CaseFrame
 
 
@@ -59,10 +60,6 @@ class PolicyEngine:
             return any(d["type"] == "laptop" and d["managed"] for d in user["devices"])
         raise ValueError(f"unknown precondition {name}")
 
-    def _eligible(self, resource: dict, user: dict) -> bool:
-        eligible = resource.get("eligible_departments", [])
-        return "all" in eligible or user["department"] in eligible
-
     def _approvers(self, resource: dict, user: dict) -> list[str]:
         manager = self.users.get(user.get("manager_id") or "", {}).get("name", "the employee's manager")
         approvers = [f"{manager} (manager)"]
@@ -90,13 +87,13 @@ class PolicyEngine:
         resource = self.resources.get(target or "")
         if resource is None:
             return Decision("invalid", f"Unknown resource '{target}'. Catalog ids: {', '.join(sorted(self.resources))}.")
-        if target in user["access"]:
+        if facts.has_access(user, target):
             return Decision("invalid", f"The employee already has {resource['name']}.")
         approval = resource["approval"]
         if approval == "not_requestable":
             return Decision("human_only", f"{resource['name']} is not requestable by individuals "
                                           f"({resource.get('typical_turnaround', '')}).", team=resource.get("team"))
-        auto_ok = approval == "auto" and self._eligible(resource, user)
+        auto_ok = approval == "auto" and facts.eligible(user, resource)
 
         if action == "request_access_approval":
             if auto_ok:

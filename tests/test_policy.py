@@ -80,3 +80,21 @@ def test_software_push_only_for_approved_packages(world):
     e = engine(world)
     assert e.evaluate("push_software_update", world.users["u-priya"], case("u-priya", True), "GlobalProtect").decision == "allow"
     assert e.evaluate("push_software_update", world.users["u-priya"], case("u-priya", True), "uTorrent").decision == "precondition_failed"
+
+
+def test_policy_reads_employee_facts_only_through_facts_py():
+    """One owner per fact: policy asks helpdesk/facts.py instead of reading the employee record itself."""
+    from pathlib import Path
+    text = Path("helpdesk/policy.py").read_text()
+    assert 'user["access"]' not in text  # who holds what: facts.has_access
+    assert '"all" in' not in text  # who is eligible: facts.eligible (listing the departments in a message is fine)
+
+
+def test_facts():
+    from helpdesk import facts
+    user = {"access": ["jira"], "department": "Sales"}
+    assert facts.has_access(user, "jira") and not facts.has_access(user, "grafana-viewer")
+    assert facts.eligible(user, {"eligible_departments": ["all"]})
+    assert facts.eligible(user, {"eligible_departments": ["Sales", "Marketing"]})
+    assert not facts.eligible(user, {"eligible_departments": ["Engineering"]})
+    assert not facts.eligible(user, {})  # no list means no one is auto-eligible
