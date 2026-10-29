@@ -12,8 +12,7 @@ def ctx(tmp_path, monkeypatch):
     world = World.load().fork()
     user = world.users["u-maya"]
     return ToolContext(world=world, policy=PolicyEngine(world.policy, world.users),
-                       case=CaseFrame(case_id="t", user_id="u-maya"), user=user, trace_id="t",
-                       first_message="I can't log into Okta")
+                       case=CaseFrame(case_id="t", user_id="u-maya"), user=user, trace_id="t")
 
 
 def verify(ctx):
@@ -74,9 +73,45 @@ def test_confirmed_hypothesis_needs_real_evidence(ctx):
     assert ctx.case.hypotheses[0].status == "confirmed"
 
 
-def test_resolved_requires_employee_confirmation(ctx):
-    result, is_error = execute(ctx, "close_case", {"outcome": "resolved", "summary": "x", "employee_confirmed": False})
-    assert is_error and ctx.case.status == "open"
+def say(ctx, text):
+    """What agent.respond() does with each employee message."""
+    ctx.case.employee_messages.append(text)
+
+
+def close_resolved(ctx, words):
+    return execute(ctx, "close_case", {"outcome": "resolved", "summary": "x", "employee_words": words})
+
+
+def test_resolved_needs_the_employees_own_words_after_the_fix(ctx):
+    say(ctx, "I can't log into Okta, I'm locked out")
+    verify(ctx)
+    assert execute(ctx, "perform_action", {"action": "unlock_account", "justification": "locked"})[0]["executed"]
+    assert close_resolved(ctx, None)[1] and ctx.case.status == "open"  # no words at all
+    assert close_resolved(ctx, "it works now")[1]  # words the employee never sent
+    assert close_resolved(ctx, "I'm locked out")[1]  # sent before the unlock, so it can't confirm it
+    say(ctx, "Okay, I'm back in. Thanks!")
+    result, is_error = close_resolved(ctx, "I'm back in")
+    assert not is_error and ctx.case.status == "resolved"
+
+
+def test_resolved_without_a_change_needs_words_after_the_opening(ctx):
+    say(ctx, "Outlook stopped sending, it works now? no")
+    assert close_resolved(ctx, "it works now")[1]  # the opening message can't confirm a fix
+    say(ctx, "Emptied Deleted Items, sending works again")
+    assert not close_resolved(ctx, "sending works again")[1]
+
+
+def test_status_changes_only_in_transition():
+    """One owner for the case status: nothing outside case.transition() assigns it."""
+    import re
+    from pathlib import Path
+    from helpdesk.case import OUTCOME_GUARDS, Outcome
+    from typing import get_args
+    for path in Path("helpdesk").glob("*.py"):
+        text = path.read_text()
+        hits = re.findall(r"\bcase\.status\s*=[^=]", text)
+        assert path.name == "case.py" and len(hits) == 1 if hits else True, path
+    assert set(OUTCOME_GUARDS) | {"open"} == set(get_args(Outcome))  # every outcome has a guard entry
 
 
 def test_escalation_validates_and_computes_priority(ctx):
@@ -109,3 +144,20 @@ def test_fault_injection_retries_then_reports(ctx):
     assert is_error and "Do not guess" in down["error"]
     flaky, is_error = execute(ctx, "search_kb", {"query": "okta locked"})
     assert not is_error and flaky["results"]
+
+
+def test_outcome_names_and_guard_actions_have_one_owner():
+    """Outcomes are defined by case.Outcome; the other mentions must match it. Actions belong to policy.yaml."""
+    from typing import get_args
+    from helpdesk.case import OUTCOME_GUARDS, Outcome
+    from helpdesk.prompts import SYSTEM_PROMPT
+    from helpdesk.tools import CloseCase, TOOLS_BY_NAME
+    from helpdesk.world import World
+    closable = set(get_args(CloseCase.model_fields["outcome"].annotation))
+    assert closable == set(get_args(Outcome)) - {"open", "escalated"}  # escalation has its own tool
+    for text in (SYSTEM_PROMPT, TOOLS_BY_NAME["close_case"].description):
+        assert all(name in text for name in closable), text[:60]
+    policy_actions = set(World.load().policy["actions"])
+    import inspect, re
+    used = set(re.findall(r'_done\("(\w+)"', inspect.getsource(__import__("helpdesk.case", fromlist=["x"]))))
+    assert used and used <= policy_actions  # a renamed action in policy.yaml fails here, not silently

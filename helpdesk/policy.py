@@ -44,6 +44,7 @@ class PolicyEngine:
         self.approved_software = policy["approved_software"]
         self.teams = policy["teams"]
         self.users = users
+        self.fix_actions = frozenset(a for a, rule in self.actions.items() if rule.get("fix"))
 
     def _precondition(self, name: str, user: dict, case: CaseFrame, target: str | None) -> bool:
         if name == "identity_verified":

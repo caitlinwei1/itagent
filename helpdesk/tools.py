@@ -16,7 +16,7 @@ from typing import Any, Callable, Literal
 from pydantic import BaseModel, Field, ValidationError
 
 from .case import (RESPONSE_TARGETS, ActionRecord, CaseFrame, Claim, Evidence, Handoff, HandoffInput, Hypothesis,
-                   priority, utcnow)
+                   frozen, priority, transition, utcnow)
 from .config import VAR_DIR
 from .policy import PolicyEngine
 from .world import World
@@ -103,7 +103,8 @@ class CloseCase(BaseModel):
                     "and given workaround/ETA. pending_approval: approval requests filed. answered: a question answered "
                     "from the KB. refused: request is not allowed or not IT; explained.")
     summary: str = Field(description="One or two sentences for the case record.")
-    employee_confirmed: bool = Field(description="True only if the employee said it now works / they have what they need.")
+    employee_words: str | None = Field(None, description="For resolved: the employee's own words saying it works, "
+                                                         "copied exactly from their latest message.")
     kb_feedback: list[str] = Field(default=[], description="Optional: 'KB-xxx: what was wrong or missing' when an "
                                                            "article was inaccurate or a gap was found.")
 
@@ -143,7 +144,6 @@ class ToolContext:
     case: CaseFrame
     user: dict
     trace_id: str
-    first_message: str = ""
     faults: dict[str, str] = field(default_factory=dict)
     notices: list[dict] = field(default_factory=list)  # messages shown to the employee by the system, not the model
     _verification_code: str | None = None
@@ -159,7 +159,7 @@ class ToolContext:
 
     def record_action(self, action: str, target: str | None, decision: str, executed: bool, detail: str) -> None:
         self.case.actions.append(ActionRecord(action=action, target=target, decision=decision,
-                                              executed=executed, detail=detail))
+                                              executed=executed, detail=detail, turn=self.case.turns))
         _append_jsonl("audit.jsonl", {"at": utcnow(), "trace_id": self.trace_id, "user_id": self.user["user_id"],
                                       "action": action, "target": target, "decision": decision,
                                       "executed": executed, "detail": detail})
@@ -410,16 +410,9 @@ def _case_brief(case: CaseFrame) -> dict:
 
 def close_case(ctx: ToolContext, a: CloseCase) -> dict:
     case = ctx.case
-    if case.status == "escalated":
-        return {"error": f"Case already escalated as {case.ticket_id}."}
-    if a.outcome == "resolved" and not a.employee_confirmed:
-        return {"error": "Not closed: 'resolved' needs the employee to confirm the fix works. Ask them to test it "
-                         "now. If they can't test yet, keep the case open and tell them how to come back."}
-    if a.outcome == "linked_incident" and not any(x.action == "add_user_to_incident" and x.executed for x in case.actions):
-        return {"error": "Not closed: add the employee to the incident first (perform_action add_user_to_incident)."}
-    if a.outcome == "pending_approval" and not any(x.action == "request_access_approval" and x.executed for x in case.actions):
-        return {"error": "Not closed: no approval request was filed."}
-    case.status = a.outcome
+    problem = transition(case, a.outcome, {"employee_words": a.employee_words, "fix_actions": ctx.policy.fix_actions})
+    if problem:
+        return {"error": f"Not closed: {problem}"}
     case.outcome_summary = a.summary
     for item in a.kb_feedback:
         _append_jsonl("kb_feedback.jsonl", {"at": utcnow(), "trace_id": ctx.trace_id, "feedback": item})
@@ -428,8 +421,8 @@ def close_case(ctx: ToolContext, a: CloseCase) -> dict:
 
 def escalate_to_human(ctx: ToolContext, a: Escalate) -> dict:
     case, world = ctx.case, ctx.world
-    if case.status == "escalated":
-        return {"error": f"Already escalated as {case.ticket_id}. Do not create a duplicate."}
+    if problem := frozen(case):
+        return {"error": problem}
     if a.assignment_group not in ctx.policy.teams:
         return {"error": f"Unknown team '{a.assignment_group}'. Choose one of: {', '.join(ctx.policy.teams)}."}
     valid = case.evidence_ids()
@@ -445,7 +438,7 @@ def escalate_to_human(ctx: ToolContext, a: Escalate) -> dict:
         **a.model_dump(exclude={"kb_feedback"}), ticket_id=ticket_id, priority=prio, created_at=utcnow(),
         employee={"user_id": u["user_id"], "name": u["name"], "email": u["email"], "department": u["department"],
                   "title": u["title"], "location": u["location"], "phone_last4": u["phone_last4"]},
-        employee_words=ctx.first_message, identity_verified=case.identity_verified, systems=case.systems,
+        employee_words=case.employee_messages[0] if case.employee_messages else "", identity_verified=case.identity_verified, systems=case.systems,
         symptom=case.symptom, request_type=case.request_type, deadline=case.deadline, claims=case.claims,
         hypotheses=case.hypotheses, actions_taken=case.actions, kb_articles_used=case.kb_articles_read,
         trace_id=ctx.trace_id)
@@ -454,7 +447,8 @@ def escalate_to_human(ctx: ToolContext, a: Escalate) -> dict:
     (VAR_DIR / "tickets" / f"{ticket_id}.json").write_text(handoff.model_dump_json(indent=2))
     for item in a.kb_feedback:
         _append_jsonl("kb_feedback.jsonl", {"at": utcnow(), "trace_id": ctx.trace_id, "feedback": item})
-    case.status, case.ticket_id, case.outcome_summary = "escalated", ticket_id, a.summary
+    case.ticket_id, case.outcome_summary = ticket_id, a.summary
+    transition(case, "escalated")
     ctx.record_action("escalate_to_human", a.assignment_group, "allow", True, f"{ticket_id} ({prio})")
     ctx.notices.append({"type": "ticket", "text": f"Ticket {ticket_id} created for {a.assignment_group}, "
                                                   f"priority {prio}, target first response {RESPONSE_TARGETS[prio]}."})

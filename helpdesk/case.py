@@ -7,7 +7,7 @@ identity status, evidence, actions taken and the final outcome.
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 Symptom = Literal["login_failed", "mfa", "slow", "disconnects", "missing_access", "job_failure",
                   "error_message", "security", "how_to", "other", "unknown"]
@@ -45,6 +45,7 @@ class ActionRecord(BaseModel):
     decision: str
     executed: bool
     detail: str
+    turn: int = 0  # the employee message (1-based) this action followed
     at: str = Field(default_factory=utcnow)
 
 
@@ -67,10 +68,62 @@ class CaseFrame(BaseModel):
     status: Outcome = "open"
     outcome_summary: str | None = None
     ticket_id: str | None = None
-    turns: int = 0
+    employee_messages: list[str] = []  # verbatim, one per turn (index 0 is turn 1)
+
+    @computed_field
+    @property
+    def turns(self) -> int:
+        return len(self.employee_messages)
 
     def evidence_ids(self) -> set[str]:
         return {e.id for e in self.evidence}
+
+
+def _norm(text: str) -> str:
+    return " ".join(text.lower().replace("\u2019", "'").split())
+
+
+def _resolved(case: "CaseFrame", basis: dict) -> str | None:
+    """The employee's own words saying it works, from a message after the last executed fix (or after the opening
+    message when nothing was changed). Whether the words mean "it works" is the model's judgement."""
+    words = _norm(basis.get("employee_words") or "")
+    last_fix = max((a.turn for a in case.actions if a.executed and a.action in basis.get("fix_actions", ())), default=1)
+    later = [_norm(m) for m in case.employee_messages[last_fix:]]
+    if not words or not any(words in m for m in later):
+        return ("'resolved' needs the employee's own words saying it works, quoted from a message they sent after "
+                "the last change. If they haven't said so yet, ask them to test it now.")
+    return None
+
+
+def _done(action: str, message: str):
+    return lambda case, basis: None if any(a.action == action and a.executed for a in case.actions) else message
+
+
+OUTCOME_GUARDS = {  # each outcome: what must be true before a case may end with it (None = nothing to check)
+    "resolved": _resolved,
+    "linked_incident": _done("add_user_to_incident", "Add the employee to the incident first (perform_action "
+                                                     "add_user_to_incident)."),
+    "pending_approval": _done("request_access_approval", "No approval request was filed."),
+    "escalated": lambda case, basis: None if case.ticket_id else "No ticket was created.",
+    "answered": None,
+    "refused": None,
+}
+
+
+def frozen(case: "CaseFrame") -> str | None:
+    """An escalated case stays escalated: no other ending and no second ticket."""
+    return f"Case already escalated as {case.ticket_id}. Do not create a duplicate." if case.status == "escalated" else None
+
+
+def transition(case: "CaseFrame", to: str, basis: dict | None = None) -> str | None:
+    """The only place a case's status changes. Returns why not, or None when the case moved to `to`."""
+    if problem := frozen(case):
+        return problem
+    guard = OUTCOME_GUARDS[to]
+    problem = guard(case, basis or {}) if guard else None
+    if problem is None:
+        case.status = to
+    return problem
 
 
 class EvidenceItem(BaseModel):

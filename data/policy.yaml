@@ -10,10 +10,12 @@
 
 actions:
   unlock_account:
+    fix: true                        # a change meant to restore the employee's goal
     decision: allow
     requires: [identity_verified, account_locked]
     description: Unlock the employee's own Okta account after a lockout.
   send_password_reset_link:
+    fix: true                        # a change meant to restore the employee's goal
     decision: allow
     requires: [identity_verified, account_not_suspended]
     description: Send a self-service password reset link to the employee's registered recovery email or phone.
@@ -26,6 +28,7 @@ actions:
     team: Identity & Access
     description: Reactivate a suspended account. Requires HR confirmation.
   grant_access:
+    fix: true                        # a change meant to restore the employee's goal
     decision: by_resource            # see `resources` below
     requires: [identity_verified]
     description: Grant the employee access to a catalog resource.
@@ -33,6 +36,7 @@ actions:
     decision: allow
     description: File an approval request for a catalog resource; approvers are notified.
   push_software_update:
+    fix: true                        # a change meant to restore the employee's goal
     decision: allow
     requires: [identity_verified, package_approved, device_managed]
     description: Push an approved software version to the employee's own managed device via Self Service.

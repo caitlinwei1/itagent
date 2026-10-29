@@ -71,9 +71,7 @@ class HelpdeskAgent:
                 self.tracer.log(event)
             self.on_event(event)
 
-        self.case.turns += 1
-        if self.case.turns == 1:
-            self.ctx.first_message = text
+        self.case.employee_messages.append(text)
         self.ctx.notices = []
         emit({"type": "user_message", "text": text})
 
