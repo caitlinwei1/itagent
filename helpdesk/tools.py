@@ -15,7 +15,8 @@ from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-from .case import (RESPONSE_TARGETS, ActionRecord, CaseFrame, Claim, Evidence, Handoff, HandoffInput, Hypothesis,
+from .case import (RESPONSE_TARGETS, ActionRecord, CaseFrame, Claim, ClaimStatus, Evidence, Handoff, HandoffInput, Hypothesis,
+                   HypothesisStatus,
                    frozen, handoff_urgency, priority, route, transition, utcnow)
 from . import facts
 from .config import VAR_DIR
@@ -78,13 +79,15 @@ class PerformAction(BaseModel):
 class HypothesisIn(BaseModel):
     id: str = Field(description="Short id, e.g. H1")
     cause: str
-    status: Literal["open", "confirmed", "ruled_out"]
-    evidence_refs: list[str] = Field(default=[], description="Evidence ids (E1...) that support the status.")
+    status: HypothesisStatus = Field(description="open: not yet assessed; likely: the evidence points to it; "
+                                                 "ruled_out: the evidence excludes it.")
+    evidence_refs: list[str] = Field(default=[], description="Evidence ids (E1...) behind the status.")
+    not_yet_checked: str | None = Field(None, description="For likely: what would still have to be true or checked.")
 
 
 class ClaimIn(BaseModel):
     text: str = Field(description="What the employee said they tried or observed.")
-    status: Literal["unverified", "confirmed", "contradicted"] = "unverified"
+    status: ClaimStatus = "unverified"
     evidence_refs: list[str] = []
 
 
@@ -478,10 +481,11 @@ def update_case(ctx: ToolContext, a: UpdateCase) -> dict:
         for h in a.hypotheses:
             refs = [r for r in h.evidence_refs if r in valid_refs]
             status = h.status
-            if status in ("confirmed", "ruled_out") and not refs:
+            if status in ("likely", "ruled_out") and not refs:
                 status = "open"
                 warnings.append(f"{h.id} kept open: '{h.status}' needs evidence ids from tool results (E1, E2...).")
-            hyps.append(Hypothesis(id=h.id, cause=h.cause, status=status, evidence_refs=refs))
+            hyps.append(Hypothesis(id=h.id, cause=h.cause, status=status, evidence_refs=refs,
+                                   not_yet_checked=h.not_yet_checked))
         case.hypotheses = hyps
     return {"case": _case_brief(case), "warnings": warnings}
 

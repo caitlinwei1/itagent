@@ -57,14 +57,14 @@ def test_fork_isolates_changes(ctx):
     assert World.load().users["u-maya"]["account"]["status"] == "locked"
 
 
-def test_confirmed_hypothesis_needs_real_evidence(ctx):
-    result, _ = execute(ctx, "update_case", {"hypotheses": [{"id": "H1", "cause": "saved password", "status": "confirmed",
+def test_a_likely_cause_needs_real_evidence(ctx):
+    result, _ = execute(ctx, "update_case", {"hypotheses": [{"id": "H1", "cause": "saved password", "status": "likely",
                                                              "evidence_refs": ["E9"]}]})
     assert ctx.case.hypotheses[0].status == "open" and result["warnings"]
     execute(ctx, "get_account_diagnostics", {"area": "sign_in"})
-    execute(ctx, "update_case", {"hypotheses": [{"id": "H1", "cause": "saved password", "status": "confirmed",
+    execute(ctx, "update_case", {"hypotheses": [{"id": "H1", "cause": "saved password", "status": "likely",
                                                  "evidence_refs": ["E1"]}]})
-    assert ctx.case.hypotheses[0].status == "confirmed"
+    assert ctx.case.hypotheses[0].status == "likely"
 
 
 def say(ctx, text):
@@ -304,3 +304,12 @@ def test_an_approval_request_is_filed_once_per_case(ctx):
     again, _ = execute(ctx, "perform_action", args)
     assert first["executed"] and again["already_done"] and len(ctx.world.approval_requests) == 1
     assert sum(1 for x in ctx.case.actions if x.action == "request_access_approval") == 1
+
+
+
+def test_hypothesis_status_has_one_definition():
+    from typing import get_args
+    from helpdesk import case, tools
+    assert "confirmed" not in get_args(case.HypothesisStatus)  # code never establishes a cause
+    assert tools.HypothesisIn.model_fields["status"].annotation is case.HypothesisStatus
+    assert tools.ClaimIn.model_fields["status"].annotation is case.ClaimStatus

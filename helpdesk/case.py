@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field, computed_field
 Symptom = Literal["login_failed", "mfa", "slow", "disconnects", "missing_access", "job_failure",
                   "error_message", "security", "how_to", "other", "unknown"]
 RequestType = Literal["incident", "service_request", "question", "security", "out_of_scope", "unknown"]
+HypothesisStatus = Literal["open", "likely", "ruled_out"]  # code never establishes a cause, so there is no "confirmed"
+ClaimStatus = Literal["unverified", "confirmed", "contradicted"]  # what the employee said, checked against records
 Outcome = Literal["open", "resolved", "linked_incident", "pending_approval", "answered", "refused", "escalated"]
 
 
@@ -29,15 +31,18 @@ class Evidence(BaseModel):
 
 class Claim(BaseModel):
     text: str
-    status: Literal["unverified", "confirmed", "contradicted"] = "unverified"
+    status: ClaimStatus = "unverified"
     evidence_refs: list[str] = []
 
 
 class Hypothesis(BaseModel):
+    """The agent's reading of a possible cause. Nothing in code acts on it; it is shown to the agent and the
+    specialist with what supports it and what hasn't been checked yet."""
     id: str
     cause: str
-    status: Literal["open", "confirmed", "ruled_out"] = "open"
+    status: HypothesisStatus = "open"
     evidence_refs: list[str] = []
+    not_yet_checked: str | None = None
 
 
 class ActionRecord(BaseModel):

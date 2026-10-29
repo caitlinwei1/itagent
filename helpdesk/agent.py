@@ -205,7 +205,8 @@ class HelpdeskAgent:
             "status": c.status, "identity_verified": c.identity_verified, "request_type": c.request_type,
             "systems": c.systems, "symptom": c.symptom, "user_goal": c.user_goal, "deadline": c.deadline,
             "claims": [f"[{x.status}] {x.text}" for x in c.claims],
-            "hypotheses": [f"{h.id} [{h.status}] {h.cause} {h.evidence_refs}" for h in c.hypotheses],
+            "hypotheses": [f"{h.id} [{h.status}] {h.cause} {h.evidence_refs}"
+                           + (f" (not yet checked: {h.not_yet_checked})" if h.not_yet_checked else "") for h in c.hypotheses],
             "evidence_collected": [f"{e.id} {e.tool}({json.dumps(e.args, ensure_ascii=False)})" for e in c.evidence],
             "kb_articles_read": c.kb_articles_read,
             "actions": [f"{a.action}({a.target}) -> {a.decision}, executed={a.executed}" for a in c.actions],
