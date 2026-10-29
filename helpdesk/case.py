@@ -24,6 +24,7 @@ class Evidence(BaseModel):
     tool: str
     args: dict
     summary: str
+    record: dict | None = None  # the raw records behind a text result (audit, handoff); the model sees the text
 
 
 class Claim(BaseModel):

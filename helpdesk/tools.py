@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from .case import (RESPONSE_TARGETS, ActionRecord, CaseFrame, Claim, Evidence, Handoff, HandoffInput, Hypothesis,
                    frozen, priority, transition, utcnow)
+from . import facts
 from .config import VAR_DIR
 from .policy import PolicyEngine
 from .world import World
@@ -150,10 +151,10 @@ class ToolContext:
     _code_attempts: int = 0
     _fault_calls: dict[str, int] = field(default_factory=dict)
 
-    def add_evidence(self, tool: str, args: dict, payload: Any) -> str:
+    def add_evidence(self, tool: str, args: dict, payload: Any, record: Any = None) -> str:
         evidence_id = f"E{len(self.case.evidence) + 1}"
-        summary = json.dumps(payload, ensure_ascii=False, default=str)
-        self.case.evidence.append(Evidence(id=evidence_id, tool=tool, args=args,
+        summary = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False, default=str)
+        self.case.evidence.append(Evidence(id=evidence_id, tool=tool, args=args, record=record,
                                            summary=summary[:400] + ("..." if len(summary) > 400 else "")))
         return evidence_id
 
@@ -249,7 +250,8 @@ def get_account_diagnostics(ctx: ToolContext, a: Diagnostics) -> dict:
         acct = {k: v for k, v in u["account"].items()}
         return {"account": acct, "sign_in_log": u["diagnostics"].get("sign_in", [])}
     if a.area == "devices":
-        return {"devices": u["devices"], "approved_software": ctx.policy.approved_software}
+        return {"text": describe_devices(u, ctx.policy.approved_software),
+                "record": {"devices": u["devices"], "approved_software": ctx.policy.approved_software}}
     if a.area == "access":
         catalog = {rid: {"name": r["name"], "approval": r["approval"],
                          "eligible_departments": r.get("eligible_departments"),
@@ -259,6 +261,31 @@ def get_account_diagnostics(ctx: ToolContext, a: Diagnostics) -> dict:
     if not data:
         return {"area": a.area, "records": [], "note": "No records of this kind for this employee."}
     return {"area": a.area, "records": data}
+
+
+def describe_devices(user: dict, approved: dict[str, str]) -> str:
+    """The employee's devices as plain sentences: per app, what is installed and, separately, the approved version."""
+    lines = []
+    for d in user["devices"]:
+        managed = "managed" if d["managed"] else "not managed"
+        lines.append(f"{d['asset_id']} ({d['model']}, {d['os']}, {managed}):")
+        for app in d.get("software", {}):
+            s = facts.software_state(user, approved, app) if d is facts.managed_laptop(user) else None
+            version = facts.installed_version(d, app)
+            installed = f"version {version} installed" if version else "not installed"
+            if s is None:
+                lines.append(f"- {app}: {installed}.")
+            elif s["approved"] is None:
+                lines.append(f"- {app}: {installed}. Not on the approved software list.")
+            else:
+                same = " (the approved version)" if s["current"] else ""
+                lines.append(f"- {app}: {installed}{same}. Approved version: {s['approved']}.")
+        if "disk_free_gb" in d:
+            lines.append(f"- Disk: {d['disk_free_gb']} GB free of {d.get('disk_total_gb', '?')} GB.")
+    others = [app for app in approved if all(app not in d.get("software", {}) for d in user["devices"])]
+    if others:
+        lines.append("Also on the approved list, not in these device records: " + ", ".join(others) + ".")
+    return "\n".join(lines)
 
 
 def search_ticket_history(ctx: ToolContext, a: SearchHistory) -> dict:
@@ -342,11 +369,12 @@ def perform_action(ctx: ToolContext, a: PerformAction) -> dict:
         readback = {"request_id": request_id, "approvers": decision.approvers,
                     "typical_turnaround": ctx.policy.resources[a.target].get("typical_turnaround")}
     elif a.action == "push_software_update":
-        version = ctx.policy.approved_software[a.target]
-        laptop = next(d for d in u["devices"] if d["type"] == "laptop" and d["managed"])
+        version = facts.software_state(u, ctx.policy.approved_software, a.target)["approved"]
+        laptop = facts.managed_laptop(u)
         laptop["software"][a.target] = version
         detail = f"Pushed {a.target} {version} to {laptop['asset_id']} via Self Service."
-        readback = {"device": laptop["asset_id"], "installed_version_now": version,
+        after = facts.software_state(u, ctx.policy.approved_software, a.target)  # read again, not the value written
+        readback = {"device": after["device"], "installed_version_now": after["installed"],
                     "note": "Install takes about 3 minutes and needs a VPN reconnect."}
     elif a.action == "add_user_to_incident":
         inc = next((i for i in world.incidents if i["id"] == a.target and i["status"] != "resolved"), None)
@@ -567,7 +595,11 @@ def execute(ctx: ToolContext, name: str, raw_input: dict) -> tuple[dict, bool]:
                                  "it would have returned: tell the employee you could not check it, use other "
                                  "sources, or escalate with escalation_reason tool_failure."}, True
     if tool.kind == "read" and "error" not in result:
-        result = {"evidence_id": ctx.add_evidence(name, raw_input, result), **result}
+        if "text" in result:  # described in words: the model (and the judge) see the text, the record is kept
+            record = result.pop("record", None)
+            result = {"evidence_id": ctx.add_evidence(name, raw_input, result["text"], record), "text": result["text"]}
+        else:
+            result = {"evidence_id": ctx.add_evidence(name, raw_input, result), **result}
     return result, "error" in result
 
 

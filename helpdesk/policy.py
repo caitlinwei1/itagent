@@ -35,6 +35,7 @@ PRECONDITION_HINTS = {
     "account_not_suspended": "The account is suspended; only Identity & Access can act on it.",
     "package_approved": "That software or version is not on the approved list.",
     "device_managed": "The employee has no managed laptop for Self Service to push to.",
+    "not_already_current": "The approved version is already installed; there is nothing to push.",
 }
 
 
@@ -55,9 +56,11 @@ class PolicyEngine:
         if name == "account_not_suspended":
             return user["account"]["status"] != "suspended"
         if name == "package_approved":
-            return target in self.approved_software
+            return facts.software_state(user, self.approved_software, target or "")["approved"] is not None
         if name == "device_managed":
-            return any(d["type"] == "laptop" and d["managed"] for d in user["devices"])
+            return facts.managed_laptop(user) is not None
+        if name == "not_already_current":
+            return not facts.software_state(user, self.approved_software, target or "")["current"]
         raise ValueError(f"unknown precondition {name}")
 
     def _approvers(self, resource: dict, user: dict) -> list[str]:

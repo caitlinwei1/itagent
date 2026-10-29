@@ -161,3 +161,35 @@ def test_outcome_names_and_guard_actions_have_one_owner():
     import inspect, re
     used = set(re.findall(r'_done\("(\w+)"', inspect.getsource(__import__("helpdesk.case", fromlist=["x"]))))
     assert used and used <= policy_actions  # a renamed action in policy.yaml fails here, not silently
+
+
+def test_devices_are_described_in_words_from_the_fact_functions(ctx):
+    """One line per app: what is installed, then the approved version, so the two can't be read as one."""
+    ctx.user = ctx.world.users["u-ken"]
+    result, _ = execute(ctx, "get_account_diagnostics", {"area": "devices"})
+    assert set(result) == {"evidence_id", "text"}  # the model and the judge see the text only
+    assert "- Docker Desktop: not installed. Approved version: 4.38." in result["text"]
+    assert "Approved list" not in result["text"]
+    assert ctx.case.evidence[-1].record["devices"]  # the raw record is kept with the evidence
+
+
+def test_a_push_to_an_app_already_at_the_approved_version_is_refused(ctx):
+    ctx.user = ctx.world.users["u-ken"]  # GlobalProtect 6.2.3 is already the approved version
+    verify(ctx)
+    same, _ = execute(ctx, "perform_action", {"action": "push_software_update", "target": "GlobalProtect",
+                                              "justification": "x"})
+    assert same["executed"] is False and "not_already_current" in same["missing_preconditions"]
+    pushed, _ = execute(ctx, "perform_action", {"action": "push_software_update", "target": "Docker Desktop",
+                                                "justification": "x"})
+    assert pushed["executed"] and pushed["readback"]["installed_version_now"] == "4.38"  # read again after the write
+
+
+def test_software_facts():
+    from helpdesk import facts
+    approved = {"Docker Desktop": "4.38", "GlobalProtect": "6.2.3"}
+    user = {"devices": [{"type": "laptop", "managed": True, "asset_id": "LT-1",
+                         "software": {"Docker Desktop": "not installed", "GlobalProtect": "6.0.1"}}]}
+    assert facts.software_state(user, approved, "Docker Desktop")["installed"] is None
+    assert facts.software_state(user, approved, "GlobalProtect") == {"device": "LT-1", "installed": "6.0.1",
+                                                                     "approved": "6.2.3", "current": False}
+    assert facts.software_state(user, approved, "Excel")["approved"] is None

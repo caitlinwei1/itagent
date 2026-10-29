@@ -88,6 +88,7 @@ def test_policy_reads_employee_facts_only_through_facts_py():
     text = Path("helpdesk/policy.py").read_text()
     assert 'user["access"]' not in text  # who holds what: facts.has_access
     assert '"all" in' not in text  # who is eligible: facts.eligible (listing the departments in a message is fine)
+    assert "in self.approved_software" not in text and 'd["managed"]' not in text  # software: facts.software_state
 
 
 def test_facts():

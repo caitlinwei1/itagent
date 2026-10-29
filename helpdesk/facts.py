@@ -14,3 +14,23 @@ def eligible(user: dict, resource: dict) -> bool:
     """The employee's department is on the resource's eligible list ("all" means everyone)."""
     departments = resource.get("eligible_departments", [])
     return "all" in departments or user["department"] in departments
+
+
+def managed_laptop(user: dict) -> dict | None:
+    """The employee's managed laptop, the only device Self Service can push to."""
+    return next((d for d in user["devices"] if d["type"] == "laptop" and d["managed"]), None)
+
+
+def installed_version(device: dict | None, app: str) -> str | None:
+    """The version of an app on one device; None when it isn't installed (the record may say "not installed")."""
+    raw = (device or {}).get("software", {}).get(app)
+    return None if raw in (None, "not installed") else raw
+
+
+def software_state(user: dict, approved: dict[str, str], app: str) -> dict:
+    """One app on the managed laptop: the installed version (None when not installed), the approved version
+    (None when the app isn't approved), and whether the installed version is the approved one."""
+    laptop = managed_laptop(user)
+    installed = installed_version(laptop, app)
+    return {"device": laptop["asset_id"] if laptop else None, "installed": installed, "approved": approved.get(app),
+            "current": installed is not None and installed == approved.get(app)}
