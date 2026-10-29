@@ -257,6 +257,10 @@ def get_account_diagnostics(ctx: ToolContext, a: Diagnostics) -> dict:
                          "eligible_departments": r.get("eligible_departments"),
                          "typical_turnaround": r.get("typical_turnaround")} for rid, r in ctx.policy.resources.items()}
         return {"department": u["department"], "current_access": u["access"], "catalog": catalog}
+    if a.area == "mailbox" and (m := facts.mailbox_state(u)):
+        reached = "The quota has been reached." if m["over_quota"] else "The quota has not been reached."
+        return {"text": f"Mailbox: {m['used_gb']} GB used of a {m['quota_gb']} GB quota ({m['percent']}%), "
+                        f"{m['left_gb']} GB left. {reached}", "record": u["diagnostics"]["mailbox"]}
     data = u["diagnostics"].get(a.area)
     if not data:
         return {"area": a.area, "records": [], "note": "No records of this kind for this employee."}

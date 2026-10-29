@@ -193,3 +193,15 @@ def test_software_facts():
     assert facts.software_state(user, approved, "GlobalProtect") == {"device": "LT-1", "installed": "6.0.1",
                                                                      "approved": "6.2.3", "current": False}
     assert facts.software_state(user, approved, "Excel")["approved"] is None
+
+
+def test_mailbox_is_described_against_the_quota(ctx):
+    from helpdesk import facts
+    ctx.user = ctx.world.users["u-jordan"]
+    result, _ = execute(ctx, "get_account_diagnostics", {"area": "mailbox"})
+    m = facts.mailbox_state(ctx.user)
+    assert set(result) == {"evidence_id", "text"}
+    assert f"{m['used_gb']} GB used of a {m['quota_gb']} GB quota" in result["text"]  # the text shows the fact's values
+    assert "0.4 GB left" in result["text"] and "has not been reached" in result["text"]
+    assert facts.mailbox_state({"diagnostics": {"mailbox": {"size_gb": 50, "quota_gb": 50}}})["over_quota"]
+    assert facts.mailbox_state({"diagnostics": {}}) is None

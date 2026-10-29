@@ -34,3 +34,14 @@ def software_state(user: dict, approved: dict[str, str], app: str) -> dict:
     installed = installed_version(laptop, app)
     return {"device": laptop["asset_id"] if laptop else None, "installed": installed, "approved": approved.get(app),
             "current": installed is not None and installed == approved.get(app)}
+
+
+def mailbox_state(user: dict) -> dict | None:
+    """Mailbox size against the quota, from the mailbox record (None when there is no record). What Outlook does
+    near the quota is the knowledge base's to say, not a fact computed here."""
+    m = user.get("diagnostics", {}).get("mailbox")
+    if not m:
+        return None
+    used, quota = m["size_gb"], m["quota_gb"]
+    return {"used_gb": used, "quota_gb": quota, "left_gb": round(quota - used, 2),
+            "percent": round(100 * used / quota, 1), "over_quota": used >= quota}
