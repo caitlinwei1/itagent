@@ -70,6 +70,7 @@ class CaseFrame(BaseModel):
     outcome_summary: str | None = None
     ticket_id: str | None = None
     employee_messages: list[str] = []  # verbatim, one per turn (index 0 is turn 1)
+    agent_replies: list[str] = []  # the reply that ended each turn (index 0 answers turn 1)
 
     @computed_field
     @property
@@ -94,6 +95,20 @@ def _resolved(case: "CaseFrame", basis: dict) -> str | None:
         return ("'resolved' needs the employee's own words saying it works, quoted from a message they sent after "
                 "the last change. If they haven't said so yet, ask them to test it now.")
     return None
+
+
+def consent_given(case: "CaseFrame", words: str | None, names: list[str]) -> bool:
+    """The employee agreed to this change: `words` come from one of their messages that answers an agent reply
+    naming the thing being changed, and they are words, not a code. Whether the words mean "yes" is the model's
+    judgement; this checks that they exist, where, and what they answered."""
+    w = _norm(words or "")
+    if not any(ch.isalpha() for ch in w):  # a verification code is not agreement
+        return False
+    for k, message in enumerate(case.employee_messages[1:], start=1):
+        asked = case.agent_replies[k - 1].lower() if k - 1 < len(case.agent_replies) else ""
+        if w in _norm(message) and any(n.lower() in asked for n in names if n):
+            return True
+    return False
 
 
 def _done(action: str, message: str):

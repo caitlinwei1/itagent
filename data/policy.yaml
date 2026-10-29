@@ -30,7 +30,7 @@ actions:
   grant_access:
     fix: true                        # a change meant to restore the employee's goal
     decision: by_resource            # see `resources` below
-    requires: [identity_verified]
+    requires: [identity_verified, employee_consent]
     description: Grant the employee access to a catalog resource.
   request_access_approval:
     decision: allow
@@ -38,7 +38,7 @@ actions:
   push_software_update:
     fix: true                        # a change meant to restore the employee's goal
     decision: allow
-    requires: [identity_verified, package_approved, device_managed, not_already_current]
+    requires: [identity_verified, employee_consent, package_approved, device_managed, not_already_current]
     description: Push an approved software version to the employee's own managed device via Self Service.
   add_user_to_incident:
     decision: allow

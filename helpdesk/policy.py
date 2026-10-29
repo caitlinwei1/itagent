@@ -7,7 +7,7 @@ data/policy.yaml plus facts code already knows (who is signed in, whether identi
 from dataclasses import dataclass, field
 
 from . import facts
-from .case import CaseFrame
+from .case import CaseFrame, consent_given
 
 
 @dataclass
@@ -36,6 +36,8 @@ PRECONDITION_HINTS = {
     "package_approved": "That software or version is not on the approved list.",
     "device_managed": "The employee has no managed laptop for Self Service to push to.",
     "not_already_current": "The approved version is already installed; there is nothing to push.",
+    "employee_consent": "Ask the employee whether they want this exact change, naming it, and wait for their answer. "
+                        "Then pass their own words in consent_words. A verification code is not agreement.",
 }
 
 
@@ -48,7 +50,12 @@ class PolicyEngine:
         self.users = users
         self.fix_actions = frozenset(a for a, rule in self.actions.items() if rule.get("fix"))
 
-    def _precondition(self, name: str, user: dict, case: CaseFrame, target: str | None) -> bool:
+    def _precondition(self, name: str, user: dict, case: CaseFrame, target: str | None,
+                      consent_words: str | None = None) -> bool:
+        if name == "employee_consent":
+            resource = self.resources.get(target or "", {})
+            names = [target, resource.get("name"), (resource.get("name") or "").split(" ")[0]]
+            return consent_given(case, consent_words, names)
         if name == "identity_verified":
             return case.identity_verified
         if name == "account_locked":
@@ -70,23 +77,31 @@ class PolicyEngine:
             approvers.append(f"{resource.get('data_owner', 'the data owner')} (data owner)")
         return approvers
 
-    def evaluate(self, action: str, user: dict, case: CaseFrame, target: str | None = None) -> Decision:
+    def evaluate(self, action: str, user: dict, case: CaseFrame, target: str | None = None,
+                 consent_words: str | None = None) -> Decision:
         rule = self.actions.get(action)
         if rule is None:
             return Decision("forbidden", f"'{action}' is not an action the helpdesk agent can take. "
                                          f"Known actions: {', '.join(sorted(self.actions))}.")
         if action in ("grant_access", "request_access_approval"):
-            return self._access(action, rule, user, case, target)
+            return self._access(action, rule, user, case, target, consent_words)
 
         decision = rule["decision"]
         if decision in ("human_only", "forbidden"):
             return Decision(decision, rule["description"], team=rule.get("team"))
-        missing = [p for p in rule.get("requires", []) if not self._precondition(p, user, case, target)]
-        if missing:
-            return Decision("precondition_failed", " ".join(PRECONDITION_HINTS[m] for m in missing), missing=missing)
+        if missing := self._missing(rule, user, case, target, consent_words):
+            return missing
         return Decision("allow", rule["description"])
 
-    def _access(self, action: str, rule: dict, user: dict, case: CaseFrame, target: str | None) -> Decision:
+    def _missing(self, rule: dict, user: dict, case: CaseFrame, target: str | None, consent_words: str | None):
+        """The rule's `requires` that don't hold, as a precondition_failed decision (None when all hold)."""
+        missing = [p for p in rule.get("requires", []) if not self._precondition(p, user, case, target, consent_words)]
+        if missing:
+            return Decision("precondition_failed", " ".join(PRECONDITION_HINTS[m] for m in missing), missing=missing)
+        return None
+
+    def _access(self, action: str, rule: dict, user: dict, case: CaseFrame, target: str | None,
+                consent_words: str | None = None) -> Decision:
         resource = self.resources.get(target or "")
         if resource is None:
             return Decision("invalid", f"Unknown resource '{target}'. Catalog ids: {', '.join(sorted(self.resources))}.")
@@ -113,6 +128,6 @@ class PolicyEngine:
             return Decision("needs_approval", f"{resource['name']} {why}. File request_access_approval instead; "
                                               f"usual turnaround {resource.get('typical_turnaround', 'unknown')}.",
                             approvers=approvers)
-        if not case.identity_verified:
-            return Decision("precondition_failed", PRECONDITION_HINTS["identity_verified"], missing=["identity_verified"])
+        if missing := self._missing(rule, user, case, target, consent_words):
+            return missing
         return Decision("allow", f"{resource['name']} is auto-approved for {user['department']}.")

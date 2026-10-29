@@ -14,8 +14,13 @@ def engine(world):
     return PolicyEngine(world.policy, world.users)
 
 
-def case(user_id, verified=False):
-    return CaseFrame(case_id="t", user_id=user_id, identity_verified=verified)
+def case(user_id, verified=False, offered=None):
+    """A case; with `offered`, the agent named that change and the employee answered "yes, go ahead"."""
+    c = CaseFrame(case_id="t", user_id=user_id, identity_verified=verified)
+    if offered:
+        c.employee_messages = ["help", "yes, go ahead"]
+        c.agent_replies = [f"Shall I install {offered} for you?"]
+    return c
 
 
 def test_unlock_requires_identity_verification(world):
@@ -44,7 +49,8 @@ def test_unknown_action_is_forbidden(world):
 
 
 def test_auto_access_for_eligible_department(world):
-    d = engine(world).evaluate("grant_access", world.users["u-alex"], case("u-alex", True), "grafana-viewer")
+    d = engine(world).evaluate("grant_access", world.users["u-alex"], case("u-alex", True, "Grafana viewer"),
+                               "grafana-viewer", "yes, go ahead")
     assert d.decision == "allow"
 
 
@@ -78,7 +84,8 @@ def test_existing_access_and_unknown_resource_are_invalid(world):
 
 def test_software_push_only_for_approved_packages(world):
     e = engine(world)
-    assert e.evaluate("push_software_update", world.users["u-priya"], case("u-priya", True), "GlobalProtect").decision == "allow"
+    assert e.evaluate("push_software_update", world.users["u-priya"], case("u-priya", True, "GlobalProtect"),
+                      "GlobalProtect", "yes, go ahead").decision == "allow"
     assert e.evaluate("push_software_update", world.users["u-priya"], case("u-priya", True), "uTorrent").decision == "precondition_failed"
 
 
@@ -99,3 +106,15 @@ def test_facts():
     assert facts.eligible(user, {"eligible_departments": ["Sales", "Marketing"]})
     assert not facts.eligible(user, {"eligible_departments": ["Engineering"]})
     assert not facts.eligible(user, {})  # no list means no one is auto-eligible
+
+
+def test_a_change_needs_the_employees_agreement_to_that_change(world):
+    e, user = engine(world), world.users["u-priya"]
+    push = lambda c, words: e.evaluate("push_software_update", user, c, "GlobalProtect", words)  # noqa: E731
+    assert push(case("u-priya", True, "GlobalProtect"), "yes, go ahead").decision == "allow"
+    code_only = case("u-priya", True, "GlobalProtect")
+    code_only.employee_messages = ["help", "622854"]
+    assert "employee_consent" in push(code_only, "622854").missing  # a verification code is not agreement
+    assert "employee_consent" in push(case("u-priya", True, "GlobalProtect"), "sure thing").missing  # not their words
+    assert "employee_consent" in push(case("u-priya", True, "Zoom"), "yes, go ahead").missing  # agreed to something else
+    assert "employee_consent" in push(case("u-priya", True), None).missing  # nobody asked

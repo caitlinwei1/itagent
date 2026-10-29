@@ -93,6 +93,7 @@ class HelpdeskAgent:
         if reply is None:
             reply = ("Sorry, I couldn't finish checking this. I've kept everything I found; please try again, "
                      "or ask me to hand this to a specialist.")
+        self.case.agent_replies.append(reply)
         emit({"type": "assistant_message", "text": reply, "latency_s": round(time.time() - started, 1)})
         return TurnResult(reply=reply, notices=list(self.ctx.notices), case=self.case.model_dump(),
                           usage=dict(self.usage), events=events)

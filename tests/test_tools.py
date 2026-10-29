@@ -170,11 +170,14 @@ def test_devices_are_described_in_words_from_the_fact_functions(ctx):
 def test_a_push_to_an_app_already_at_the_approved_version_is_refused(ctx):
     ctx.user = ctx.world.users["u-ken"]  # GlobalProtect 6.2.3 is already the approved version
     verify(ctx)
+    say(ctx, "my VPN and Docker")
+    ctx.case.agent_replies = ["I can push GlobalProtect or Docker Desktop. Shall I?"]
+    say(ctx, "yes please")
     same, _ = execute(ctx, "perform_action", {"action": "push_software_update", "target": "GlobalProtect",
-                                              "justification": "x"})
+                                              "justification": "x", "consent_words": "yes please"})
     assert same["executed"] is False and "not_already_current" in same["missing_preconditions"]
     pushed, _ = execute(ctx, "perform_action", {"action": "push_software_update", "target": "Docker Desktop",
-                                                "justification": "x"})
+                                                "justification": "x", "consent_words": "yes please"})
     assert pushed["executed"] and pushed["readback"]["installed_version_now"] == "4.38"  # read again after the write
 
 

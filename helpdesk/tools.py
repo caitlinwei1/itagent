@@ -70,6 +70,9 @@ class PerformAction(BaseModel):
                                                  "push_software_update: package name, e.g. GlobalProtect. "
                                                  "add_user_to_incident: incident id, e.g. INC-2051.")
     justification: str = Field(description="Why, in one sentence (recorded in the audit log and shown to approvers).")
+    consent_words: str | None = Field(None, description="For push_software_update and grant_access: the employee's "
+                                                        "own words agreeing to this change, copied from their message "
+                                                        "after you asked about it.")
 
 
 class HypothesisIn(BaseModel):
@@ -359,7 +362,7 @@ def confirm_identity_code(ctx: ToolContext, a: ConfirmCode) -> dict:
 # ---- actions --------------------------------------------------------------------------------------
 
 def perform_action(ctx: ToolContext, a: PerformAction) -> dict:
-    decision = ctx.policy.evaluate(a.action, ctx.user, ctx.case, a.target)
+    decision = ctx.policy.evaluate(a.action, ctx.user, ctx.case, a.target, a.consent_words)
     if decision.decision != "allow":
         ctx.record_action(a.action, a.target, decision.decision, False, decision.reason)
         out = {"executed": False, **decision.as_dict()}
