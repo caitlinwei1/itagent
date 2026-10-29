@@ -37,3 +37,13 @@ def test_failed_turn_leaves_valid_history():
         agent.respond("My VPN keeps dropping.")
     # A dangling system message here would make every retry a 400.
     assert agent.messages == []
+
+
+
+def test_prompt_does_not_restate_policy():
+    """policy.yaml owns which actions only a human may run; the prompt only says how to learn it."""
+    from helpdesk.prompts import SYSTEM_PROMPT
+    from helpdesk.world import World
+    for action, rule in World.load().policy["actions"].items():
+        assert action not in SYSTEM_PROMPT or rule["decision"] in ("allow", "by_resource"), action
+    assert "human_only (MFA" not in SYSTEM_PROMPT
