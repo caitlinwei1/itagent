@@ -524,7 +524,8 @@ def escalate_to_human(ctx: ToolContext, a: Escalate) -> dict:
         ticket_id=ticket_id, urgency=urgency, priority=prio, created_at=utcnow(),
         employee={"user_id": u["user_id"], "name": u["name"], "email": u["email"], "department": u["department"],
                   "title": u["title"], "location": u["location"], "phone_last4": u["phone_last4"]},
-        employee_words=case.employee_messages[0] if case.employee_messages else "", identity_verified=case.identity_verified, systems=case.systems,
+        employee_words=case.employee_messages[0] if case.employee_messages else "",
+        employee_messages=list(case.employee_messages), identity_verified=case.identity_verified, systems=case.systems,
         symptom=case.symptom, request_type=case.request_type, deadline=case.deadline, claims=case.claims,
         hypotheses=case.hypotheses, actions_taken=case.actions, kb_articles_used=case.kb_articles_read,
         trace_id=ctx.trace_id)

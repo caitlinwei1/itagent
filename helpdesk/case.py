@@ -181,6 +181,7 @@ class Handoff(HandoffInput):
     routed_by: str  # "policy" when policy named the team, else "agent"
     priority: str  # computed by code from impact x urgency (see priority())
     employee_words: str  # the employee's first message, verbatim (KCS: capture the requester's context)
+    employee_messages: list[str]  # everything the employee said in this case, verbatim, in order
     created_at: str
     employee: dict
     identity_verified: bool

@@ -265,3 +265,18 @@ def test_a_ticket_goes_to_the_team_policy_named(ctx):
     from helpdesk import tools
     ticket = json.loads((tools.VAR_DIR / "tickets" / f"{ok['ticket_id']}.json").read_text())
     assert ticket["routed_by"] == "policy" and "steps_already_taken" not in ticket and ticket["actions_taken"]
+
+
+def test_the_ticket_carries_everything_the_employee_said(ctx):
+    say(ctx, "I clicked a link and typed my password")
+    say(ctx, "About 5 minutes ago, on my work laptop")
+    execute(ctx, "get_account_diagnostics", {"area": "sign_in"})
+    execute(ctx, "update_case", {"urgency": "high"})
+    ok, _ = execute(ctx, "escalate_to_human", {
+        "summary": "s", "impact": "high", "assignment_group": "Security Operations", "escalation_reason":
+        "security_incident", "user_impact": "x", "evidence": [{"evidence_id": "E1", "finding": "x"}],
+        "question_for_specialist": "q", "recommended_next_action": "r"})
+    import json
+    from helpdesk import tools
+    ticket = json.loads((tools.VAR_DIR / "tickets" / f"{ok['ticket_id']}.json").read_text())
+    assert ticket["employee_messages"][-1] == "About 5 minutes ago, on my work laptop"
