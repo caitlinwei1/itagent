@@ -112,12 +112,12 @@ def test_escalation_validates_and_computes_priority(ctx):
     execute(ctx, "get_account_diagnostics", {"area": "sign_in"})
     no_urgency, is_error = execute(ctx, "escalate_to_human", {"summary": "s", "impact": "low",
         "assignment_group": "Identity & Access", "escalation_reason": "fix_failed", "user_impact": "x",
-        "steps_already_taken": [], "evidence": [{"evidence_id": "E1", "finding": "x"}],
+        "evidence": [{"evidence_id": "E1", "finding": "x"}],
         "question_for_specialist": "q", "recommended_next_action": "r"})
     assert is_error and "urgency" in no_urgency["error"]  # assessed, never defaulted
     execute(ctx, "update_case", {"urgency": "high"})  # the ticket's urgency comes from the case record
     handoff = {"summary": "s", "impact": "low", "assignment_group": "Identity & Access",
-               "escalation_reason": "fix_failed", "user_impact": "cannot sign in", "steps_already_taken": [],
+               "escalation_reason": "fix_failed", "user_impact": "cannot sign in",
                "evidence": [{"evidence_id": "E7", "finding": "x"}], "question_for_specialist": "q",
                "recommended_next_action": "r"}
     bad, is_error = execute(ctx, "escalate_to_human", handoff)
@@ -250,3 +250,18 @@ def test_ticket_urgency_comes_from_the_case_and_its_deadline():
     assert handoff_urgency(case, now) == "medium"
     case.deadline = "tomorrow morning"  # unparseable: left as it is
     assert handoff_urgency(case, now) == "medium"
+
+
+def test_a_ticket_goes_to_the_team_policy_named(ctx):
+    execute(ctx, "get_account_diagnostics", {"area": "sign_in"})
+    execute(ctx, "check_policy", {"action": "reset_mfa_factor"})  # human_only: Identity & Access
+    execute(ctx, "update_case", {"urgency": "normal"})
+    ok, is_error = execute(ctx, "escalate_to_human", {
+        "summary": "s", "impact": "low", "assignment_group": "Service Desk (Tier 2)", "escalation_reason":
+        "policy_requires_human", "user_impact": "x", "evidence": [{"evidence_id": "E1", "finding": "x"}],
+        "question_for_specialist": "q", "recommended_next_action": "r"})
+    assert not is_error and ok["assignment_group"] == "Identity & Access"  # policy's team, not the agent's pick
+    import json
+    from helpdesk import tools
+    ticket = json.loads((tools.VAR_DIR / "tickets" / f"{ok['ticket_id']}.json").read_text())
+    assert ticket["routed_by"] == "policy" and "steps_already_taken" not in ticket and ticket["actions_taken"]

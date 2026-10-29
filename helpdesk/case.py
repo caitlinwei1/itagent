@@ -47,6 +47,7 @@ class ActionRecord(BaseModel):
     executed: bool
     detail: str
     turn: int = 0  # the employee message (1-based) this action followed
+    team: str | None = None  # the team policy named for a human-only action
     at: str = Field(default_factory=utcnow)
 
 
@@ -142,6 +143,13 @@ def transition(case: "CaseFrame", to: str, basis: dict | None = None) -> str | N
     return problem
 
 
+def route(case: "CaseFrame", requested: str) -> tuple[str, str]:
+    """The team a ticket goes to and why: the team policy named for a human-only action in this case wins over the
+    agent's choice (the latest such decision)."""
+    named = [a.team for a in case.actions if a.decision == "human_only" and a.team]
+    return (named[-1], "policy") if named else (requested, "agent")
+
+
 class EvidenceItem(BaseModel):
     evidence_id: str = Field(description="An evidence id from a tool result, e.g. E4")
     finding: str = Field(description="What that result showed, in one sentence")
@@ -154,15 +162,13 @@ class HandoffInput(BaseModel):
     impact: Literal["high", "medium", "low"] = Field(
         description="ITIL impact. high: many people, a whole office or a security exposure; medium: a team or "
                     "one business process; low: one person.")
-    assignment_group: str = Field(description="The team that must act. One of the teams in the policy.")
+    assignment_group: str = Field(description="The team that must act, one of the teams in the policy. When policy "
+                                              "named a team for this case (a human-only action), that team is used.")
     escalation_reason: Literal["policy_requires_human", "security_incident", "fix_failed", "root_cause_unknown",
                                "conflicting_evidence", "tool_failure", "identity_unverified",
                                "user_requested_human", "outside_agent_scope"]
     user_impact: str = Field(description="What the employee cannot do and any deadline.")
-    steps_already_taken: list[str] = Field(description="What the employee and the agent already did, so nobody repeats it.")
     evidence: list[EvidenceItem] = Field(description="Key findings, each tied to an evidence id.")
-    causes_ruled_out: list[str] = []
-    causes_still_open: list[str] = []
     question_for_specialist: str = Field(description="The exact question or decision the specialist needs to handle.")
     recommended_next_action: str
     workaround_given: str | None = None
@@ -172,6 +178,7 @@ class HandoffInput(BaseModel):
 class Handoff(HandoffInput):
     ticket_id: str
     urgency: str  # from the case record (see handoff_urgency())
+    routed_by: str  # "policy" when policy named the team, else "agent"
     priority: str  # computed by code from impact x urgency (see priority())
     employee_words: str  # the employee's first message, verbatim (KCS: capture the requester's context)
     created_at: str

@@ -16,7 +16,7 @@ from typing import Any, Callable, Literal
 from pydantic import BaseModel, Field, ValidationError
 
 from .case import (RESPONSE_TARGETS, ActionRecord, CaseFrame, Claim, Evidence, Handoff, HandoffInput, Hypothesis,
-                   frozen, handoff_urgency, priority, transition, utcnow)
+                   frozen, handoff_urgency, priority, route, transition, utcnow)
 from . import facts
 from .config import VAR_DIR
 from .policy import PolicyEngine
@@ -165,9 +165,10 @@ class ToolContext:
                                            summary=summary[:400] + ("..." if len(summary) > 400 else "")))
         return evidence_id
 
-    def record_action(self, action: str, target: str | None, decision: str, executed: bool, detail: str) -> None:
+    def record_action(self, action: str, target: str | None, decision: str, executed: bool, detail: str,
+                      team: str | None = None) -> None:
         self.case.actions.append(ActionRecord(action=action, target=target, decision=decision,
-                                              executed=executed, detail=detail, turn=self.case.turns))
+                                              executed=executed, detail=detail, turn=self.case.turns, team=team))
         _append_jsonl("audit.jsonl", {"at": utcnow(), "trace_id": self.trace_id, "user_id": self.user["user_id"],
                                       "action": action, "target": target, "decision": decision,
                                       "executed": executed, "detail": detail})
@@ -346,7 +347,10 @@ def search_ticket_history(ctx: ToolContext, a: SearchHistory) -> dict:
 
 
 def check_policy(ctx: ToolContext, a: CheckPolicy) -> dict:
-    return ctx.policy.evaluate(a.action, ctx.user, ctx.case, a.target).as_dict()
+    decision = ctx.policy.evaluate(a.action, ctx.user, ctx.case, a.target)
+    if decision.decision == "human_only":  # remembered so the ticket goes to the team policy named
+        ctx.record_action(a.action, a.target, "human_only", False, "checked: " + decision.reason, decision.team)
+    return decision.as_dict()
 
 
 # ---- identity ---------------------------------------------------------------------------------
@@ -386,7 +390,7 @@ def confirm_identity_code(ctx: ToolContext, a: ConfirmCode) -> dict:
 def perform_action(ctx: ToolContext, a: PerformAction) -> dict:
     decision = ctx.policy.evaluate(a.action, ctx.user, ctx.case, a.target, a.consent_words)
     if decision.decision != "allow":
-        ctx.record_action(a.action, a.target, decision.decision, False, decision.reason)
+        ctx.record_action(a.action, a.target, decision.decision, False, decision.reason, decision.team)
         out = {"executed": False, **decision.as_dict()}
         if decision.decision == "human_only":
             out["next"] = f"This needs {decision.team or 'a human team'}: escalate_to_human."
@@ -499,8 +503,9 @@ def escalate_to_human(ctx: ToolContext, a: Escalate) -> dict:
     case, world = ctx.case, ctx.world
     if problem := frozen(case):
         return {"error": problem}
-    if a.assignment_group not in ctx.policy.teams:
-        return {"error": f"Unknown team '{a.assignment_group}'. Choose one of: {', '.join(ctx.policy.teams)}."}
+    team, routed_by = route(case, a.assignment_group)
+    if team not in ctx.policy.teams:
+        return {"error": f"Unknown team '{team}'. Choose one of: {', '.join(ctx.policy.teams)}."}
     valid = case.evidence_ids()
     bad = [e.evidence_id for e in a.evidence if e.evidence_id not in valid]
     if bad:
@@ -515,24 +520,25 @@ def escalate_to_human(ctx: ToolContext, a: Escalate) -> dict:
     ticket_id = _next_id("IT", _TICKET_SEQ)
     u = ctx.user
     handoff = Handoff(
-        **a.model_dump(exclude={"kb_feedback"}), ticket_id=ticket_id, urgency=urgency, priority=prio, created_at=utcnow(),
+        **a.model_dump(exclude={"kb_feedback", "assignment_group"}), assignment_group=team, routed_by=routed_by,
+        ticket_id=ticket_id, urgency=urgency, priority=prio, created_at=utcnow(),
         employee={"user_id": u["user_id"], "name": u["name"], "email": u["email"], "department": u["department"],
                   "title": u["title"], "location": u["location"], "phone_last4": u["phone_last4"]},
         employee_words=case.employee_messages[0] if case.employee_messages else "", identity_verified=case.identity_verified, systems=case.systems,
         symptom=case.symptom, request_type=case.request_type, deadline=case.deadline, claims=case.claims,
         hypotheses=case.hypotheses, actions_taken=case.actions, kb_articles_used=case.kb_articles_read,
         trace_id=ctx.trace_id)
-    world.created_tickets.append({"ticket_id": ticket_id, "assignment_group": a.assignment_group, "priority": prio})
+    world.created_tickets.append({"ticket_id": ticket_id, "assignment_group": team, "priority": prio})
     (VAR_DIR / "tickets").mkdir(parents=True, exist_ok=True)
     (VAR_DIR / "tickets" / f"{ticket_id}.json").write_text(handoff.model_dump_json(indent=2))
     for item in a.kb_feedback:
         _append_jsonl("kb_feedback.jsonl", {"at": utcnow(), "trace_id": ctx.trace_id, "feedback": item})
     case.ticket_id, case.outcome_summary = ticket_id, a.summary
     transition(case, "escalated")
-    ctx.record_action("escalate_to_human", a.assignment_group, "allow", True, f"{ticket_id} ({prio})")
-    ctx.notices.append({"type": "ticket", "text": f"Ticket {ticket_id} created for {a.assignment_group}, "
+    ctx.record_action("escalate_to_human", team, "allow", True, f"{ticket_id} ({prio})")
+    ctx.notices.append({"type": "ticket", "text": f"Ticket {ticket_id} created for {team}, "
                                                   f"priority {prio}, target first response {RESPONSE_TARGETS[prio]}."})
-    return {"ticket_id": ticket_id, "priority": prio, "assignment_group": a.assignment_group,
+    return {"ticket_id": ticket_id, "priority": prio, "assignment_group": team,
             "target_first_response": RESPONSE_TARGETS[prio],
             "next": "Tell the employee the ticket number, who will contact them and when, that they won't need to "
                     "repeat anything, and any workaround."}
