@@ -110,6 +110,11 @@ def test_status_changes_only_in_transition():
 
 def test_escalation_validates_and_computes_priority(ctx):
     execute(ctx, "get_account_diagnostics", {"area": "sign_in"})
+    no_urgency, is_error = execute(ctx, "escalate_to_human", {"summary": "s", "impact": "low",
+        "assignment_group": "Identity & Access", "escalation_reason": "fix_failed", "user_impact": "x",
+        "steps_already_taken": [], "evidence": [{"evidence_id": "E1", "finding": "x"}],
+        "question_for_specialist": "q", "recommended_next_action": "r"})
+    assert is_error and "urgency" in no_urgency["error"]  # assessed, never defaulted
     execute(ctx, "update_case", {"urgency": "high"})  # the ticket's urgency comes from the case record
     handoff = {"summary": "s", "impact": "low", "assignment_group": "Identity & Access",
                "escalation_reason": "fix_failed", "user_impact": "cannot sign in", "steps_already_taken": [],
@@ -237,6 +242,7 @@ def test_ticket_urgency_comes_from_the_case_and_its_deadline():
     from helpdesk.case import handoff_urgency
     case = CaseFrame(case_id="t", user_id="u", urgency="normal")
     now = "2026-10-22T14:30:00Z"
+    assert CaseFrame(case_id="t", user_id="u").urgency is None  # not assessed until the agent records it
     assert handoff_urgency(case, now) == "medium"
     case.deadline = "2026-10-23T08:00:00Z"  # tomorrow morning
     assert handoff_urgency(case, now) == "high"

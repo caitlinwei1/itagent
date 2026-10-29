@@ -59,7 +59,7 @@ class CaseFrame(BaseModel):
     symptom: Symptom = "unknown"
     user_goal: str | None = None
     deadline: str | None = None
-    urgency: Literal["low", "normal", "high", "critical"] = "normal"
+    urgency: Literal["low", "normal", "high", "critical"] | None = None  # None until the agent assesses it
     claims: list[Claim] = []
     hypotheses: list[Hypothesis] = []
     evidence: list[Evidence] = []

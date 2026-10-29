@@ -506,6 +506,9 @@ def escalate_to_human(ctx: ToolContext, a: Escalate) -> dict:
     if bad:
         return {"error": f"Evidence ids {bad} do not exist. Cite ids from tool results this case: {sorted(valid)}."}
 
+    if case.urgency is None:  # the ticket's priority rests on it, so it is assessed, never defaulted
+        return {"error": "Record how urgent this is first: update_case with urgency (and the deadline, if the "
+                         "employee gave one). The ticket's priority comes from it."}
     security = a.escalation_reason == "security_incident"
     urgency = handoff_urgency(case, ctx.now)
     prio = priority(a.impact, urgency, security)
