@@ -34,7 +34,7 @@ PRICES = {
 
 @dataclass
 class Settings:
-    agent_model: str = field(default_factory=lambda: os.getenv("AGENT_MODEL", "claude-opus-5-5"))
+    agent_model: str = field(default_factory=lambda: os.getenv("AGENT_MODEL", "claude-sonnet-5-5"))
     agent_effort: str = field(default_factory=lambda: os.getenv("AGENT_EFFORT", "medium"))
     simulator_model: str = field(default_factory=lambda: os.getenv("SIMULATOR_MODEL", "claude-haiku-5-5"))
     judge_model: str = field(default_factory=lambda: os.getenv("JUDGE_MODEL", "claude-opus-5-5"))
