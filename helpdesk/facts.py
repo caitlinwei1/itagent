@@ -45,3 +45,16 @@ def mailbox_state(user: dict) -> dict | None:
     used, quota = m["size_gb"], m["quota_gb"]
     return {"used_gb": used, "quota_gb": quota, "left_gb": round(quota - used, 2),
             "percent": round(100 * used / quota, 1), "over_quota": used >= quota}
+
+
+def incident_covers(incident: dict, user: dict) -> bool:
+    """The incident's affected locations include where the employee works ("all" means everyone)."""
+    scope = incident["affected_locations"]
+    return "all" in scope or any(loc in user["location"] for loc in scope)
+
+
+def minutes_before(earlier_iso: str, later_iso: str) -> int:
+    """How many minutes the first time is before the second (negative when it is after)."""
+    from datetime import datetime
+    parse = lambda t: datetime.fromisoformat(t.replace("Z", "+00:00"))  # noqa: E731
+    return round((parse(later_iso) - parse(earlier_iso)).total_seconds() / 60)

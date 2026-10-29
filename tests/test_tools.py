@@ -26,19 +26,13 @@ def test_read_tools_return_evidence_ids(ctx):
     r1, _ = execute(ctx, "check_system_status", {"systems": ["sso"]})
     r2, _ = execute(ctx, "get_account_diagnostics", {"area": "sign_in"})
     assert (r1["evidence_id"], r2["evidence_id"]) == ("E1", "E2")
-    assert r1["services"][0]["service"] == "Okta"
+    assert "Okta (owner:" in r1["text"] and ctx.case.evidence[0].record["services"][0]["service"] == "Okta"
 
 
 def test_kb_search_skips_deprecated_articles(ctx):
     result, _ = execute(ctx, "search_kb", {"query": "cisco anyconnect vpn disconnects"})
     ids = [r["article_id"] for r in result["results"]]
     assert "KB-099" not in ids and "KB-120" in ids
-
-
-def test_status_marks_incident_scope_by_location(ctx):
-    result, _ = execute(ctx, "check_system_status", {"systems": ["salesforce"]})
-    inc = result["services"][0]["open_incidents"][0]
-    assert inc["id"] == "INC-2051" and inc["applies_to_employee_location"] is False  # Maya is in New York
 
 
 def test_wrong_code_does_not_verify_and_locks_after_three(ctx):
@@ -205,3 +199,16 @@ def test_mailbox_is_described_against_the_quota(ctx):
     assert "0.4 GB left" in result["text"] and "has not been reached" in result["text"]
     assert facts.mailbox_state({"diagnostics": {"mailbox": {"size_gb": 50, "quota_gb": 50}}})["over_quota"]
     assert facts.mailbox_state({"diagnostics": {}}) is None
+
+
+def test_status_says_whether_an_incident_covers_the_employee_and_when_changes_happened(ctx):
+    from helpdesk import facts
+    ctx.user = ctx.world.users["u-david"]  # Chicago
+    result, _ = execute(ctx, "check_system_status", {"systems": ["salesforce"]})
+    inc = next(i for i in ctx.world.incidents if i["id"] == "INC-2051")
+    assert facts.incident_covers(inc, ctx.user) and "this covers your location" in result["text"]
+    assert "CHG-4420 on 2026-10-21 13:30 UTC" in result["text"] and "This was 40 minutes before INC-2051 started" in result["text"]
+    assert "cause" not in result["text"].lower()  # facts only: what changed and when, not what it caused
+    ctx.user = ctx.world.users["u-maya"]  # not in Chicago
+    assert "does not cover your location" in execute(ctx, "check_system_status", {"systems": ["salesforce"]})[0]["text"]
+    assert facts.minutes_before("2026-10-21T13:30:00Z", "2026-10-21T14:10:00Z") == 40

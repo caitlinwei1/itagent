@@ -143,7 +143,7 @@ class HelpdeskAgent:
                     t0 = time.time()
                     result, is_error = execute(self.ctx, block.name, block.input)
                     emit({"type": "tool_call", "id": block.id, "name": block.name, "label": label,
-                          "outcome": step_outcome(block.name, result, is_error), "input": block.input,
+                          "outcome": step_outcome(block.name, result, is_error, self._record(result)), "input": block.input,
                           "result": result, "is_error": is_error, "ms": int((time.time() - t0) * 1000)})
                 results.append({"type": "tool_result", "tool_use_id": block.id,
                                 "content": json.dumps(result, ensure_ascii=False, default=str), "is_error": is_error})
@@ -211,6 +211,10 @@ class HelpdeskAgent:
             "ticket_id": c.ticket_id, "next_step": c.next_step,
         }
         return case_block(json.dumps(view, ensure_ascii=False))
+
+    def _record(self, result: dict) -> dict | None:
+        """The raw record kept with a text result's evidence (for the UI's step label)."""
+        return next((e.record for e in self.case.evidence if e.id == result.get("evidence_id")), None)
 
     def _check_reply(self, reply: str) -> list[str]:
         problems = []

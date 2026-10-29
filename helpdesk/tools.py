@@ -211,27 +211,45 @@ def get_kb_article(ctx: ToolContext, a: GetArticle) -> dict:
 
 def check_system_status(ctx: ToolContext, a: CheckStatus) -> dict:
     known, unknown = _canonical(ctx, a.systems)
-    location = ctx.user["location"]
-    report = []
+    user = ctx.user
+    record, lines = [], [f"Your location: {user['location']}."]
     for name in known:
         svc = next(s for s in ctx.world.services if s["name"] == name)
-        incidents = []
-        for inc in ctx.world.incidents:
-            if inc["service"] != name or inc["status"] == "resolved":
-                continue
-            scope = inc["affected_locations"]
-            incidents.append({**{k: inc[k] for k in ("id", "title", "status", "severity", "started_at", "summary",
-                                                     "workaround", "eta", "affected_locations")},
-                              "applies_to_employee_location": "all" in scope or any(loc in location for loc in scope)})
+        incidents = [i for i in ctx.world.incidents if i["service"] == name and i["status"] != "resolved"]
         changes = [c for c in ctx.world.changes if c["service"] == name or
                    (name in ("Jenkins", "Tableau") and c["service"] == "Snowflake")]
-        report.append({"service": name, "owner_team": svc["owner_team"], "health": svc["health"],
+        record.append({"service": name, "owner_team": svc["owner_team"], "health": svc["health"],
                        "open_incidents": incidents, "changes_last_14_days": changes})
-    out: dict = {"employee_location": location, "services": report}
+        lines.append(f"{name} (owner: {svc['owner_team']}): health {svc['health']}.")
+        for i in incidents:
+            covered = "covers" if facts.incident_covers(i, user) else "does not cover"
+            lines.append(f"- Open incident {i['id']} ({i['severity']}, {i['status']}): {i['title']}. Started "
+                         f"{_utc(i['started_at'])}. Affected locations: {', '.join(i['affected_locations'])}; this "
+                         f"{covered} your location. Summary: {i['summary']} Workaround: {(i['workaround'] or 'none listed').rstrip('.')}."
+                         f" ETA: {_utc(i['eta']) if i['eta'] else 'none published'}.")
+        if not incidents:
+            lines.append("- No open incidents.")
+        for c in changes:
+            timing = "".join(f" This was {_gap(facts.minutes_before(c['date'], i['started_at']))} {i['id']} started."
+                             for i in incidents)
+            lines.append(f"- Change {c['id']} on {_utc(c['date'])} ({c['window']}): {c['description']}{timing}")
     if unknown:
-        out["unrecognized"] = unknown
-        out["known_services"] = [s["name"] for s in ctx.world.services]
-    return out
+        lines.append(f"Not in the service catalog: {', '.join(unknown)}. Known services: "
+                     f"{', '.join(s['name'] for s in ctx.world.services)}.")
+    return {"text": "\n".join(lines), "record": {"employee_location": user["location"], "services": record,
+                                                 "unrecognized": unknown}}
+
+
+def _utc(iso: str) -> str:
+    return iso.replace("T", " ").replace(":00Z", " UTC").replace("Z", " UTC")
+
+
+def _gap(minutes: int) -> str:
+    """'40 minutes before' / '2 days 3 hours after': a duration, said in words, with its direction."""
+    m = abs(minutes)
+    days, hours, mins = m // 1440, m % 1440 // 60, m % 60
+    parts = [f"{n} {unit}{'s' if n != 1 else ''}" for n, unit in ((days, "day"), (hours, "hour"), (mins, "minute")) if n]
+    return f"{' '.join(parts[:2]) or '0 minutes'} {'before' if minutes >= 0 else 'after'}"
 
 
 def get_my_profile(ctx: ToolContext, a: NoArgs) -> dict:
@@ -643,14 +661,15 @@ def step_label(name: str, args: dict) -> str:
             "add_ticket_note": "Adding your details to the ticket"}.get(name, name)
 
 
-def step_outcome(name: str, result: dict, is_error: bool) -> str:
-    """One or two words on how the step went, shown next to its label."""
+def step_outcome(name: str, result: dict, is_error: bool, record: dict | None = None) -> str:
+    """One or two words on how the step went, shown next to its label. `record` is the raw record behind a text
+    result (the UI reads it; the model doesn't)."""
     if is_error:
         return "unavailable" if "unavailable" in result.get("error", "") else "failed"
     if name == "search_kb":
         return f"{len(result.get('results', []))} found"
     if name == "check_system_status":
-        incidents = sum(len(s["open_incidents"]) for s in result.get("services", []))
+        incidents = sum(len(s["open_incidents"]) for s in (record or result).get("services", []))
         return f"{incidents} open incident{'s' if incidents != 1 else ''}"
     if name == "search_ticket_history":
         return f"{len(result.get('similar_past_tickets', []))} similar"
