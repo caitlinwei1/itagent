@@ -427,7 +427,8 @@ def perform_action(ctx: ToolContext, a: PerformAction) -> dict:
         if u["user_id"] not in inc["affected_users"]:
             inc["affected_users"].append(u["user_id"])
             inc["affected_user_count"] += 1
-        detail = f"Added to {inc['id']}; subscribed to updates."
+        detail = (f"Added to {inc['id']} as an affected user. Nothing here sends the employee updates; they can ask "
+                  f"for the incident's status at any time.")
         readback = {"incident": inc["id"], "affected_user_count_now": inc["affected_user_count"], "eta": inc["eta"]}
     else:  # unreachable: the schema limits actions
         raise ValueError(a.action)

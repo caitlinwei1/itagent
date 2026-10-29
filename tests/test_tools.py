@@ -224,3 +224,9 @@ def test_access_says_what_is_already_held_and_what_getting_the_rest_takes(ctx):
     assert "- Grafana dashboards (viewer) (grafana-viewer): not held" not in text  # held items are not offered
     assert "(snowflake-prod-read): not held; needs the manager's and the data owner's approval" in text
     assert "(salesforce-standard): not held; needs the manager's approval" in text
+
+
+def test_linking_to_an_incident_promises_no_updates(ctx):
+    result, _ = execute(ctx, "perform_action", {"action": "add_user_to_incident", "target": "INC-2051",
+                                                "justification": "affected"})
+    assert result["executed"] and "subscribed" not in result["detail"] and "Nothing here sends" in result["detail"]

@@ -42,7 +42,7 @@ actions:
     description: Push an approved software version to the employee's own managed device via Self Service.
   add_user_to_incident:
     decision: allow
-    description: Record the employee as affected by an open incident and subscribe them to updates.
+    description: Record the employee as affected by an open incident (no updates are sent to them).
   grant_local_admin:
     decision: forbidden
     description: Local administrator rights are not granted to individuals. Approved software is installed through Self Service.
