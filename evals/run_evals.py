@@ -5,11 +5,15 @@
     python -m evals.run_evals --repeats 3           # pass^3: a scenario counts only if all 3 runs pass
     python -m evals.run_evals --no-judge            # skip the judge model (cheaper)
 
-Writes evals/reports/<timestamp>.md and .json.
+Writes evals/reports/<timestamp>.md and .json. Both start with what produced the run (commit, whether the tree had
+uncommitted changes, the models, and hashes of the prompt and the scenarios), so two reports are compared only when
+those match.
 """
 
 import argparse
+import hashlib
 import json
+import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -21,6 +25,7 @@ from pydantic import BaseModel, Field
 
 from helpdesk.agent import HelpdeskAgent
 from helpdesk.config import Settings
+from helpdesk.prompts import SYSTEM_PROMPT
 from helpdesk.world import World
 
 HERE = Path(__file__).parent
@@ -195,11 +200,33 @@ def run_one(world, client, scenario, use_judge, max_turns) -> dict:
             "tool_calls": run["usage"]["tool_calls"], "judge": verdict, "transcript": run["transcript"]}
 
 
-def write_report(results: list[dict], repeats: int) -> Path:
+def _git(*args: str) -> str:
+    try:
+        return subprocess.run(["git", *args], cwd=HERE.parent, capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def _hash(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()[:12]
+
+
+def run_metadata(repeats: int, use_judge: bool, only: list[str] | None) -> dict:
+    """What produced this run. `dirty` counts tracked files only, so a stray untracked note doesn't mark it."""
+    s = Settings()
+    return {"commit": _git("rev-parse", "--short", "HEAD") or "unknown",
+            "dirty": bool(_git("status", "--porcelain", "--untracked-files=no")),
+            "agent_model": s.agent_model, "agent_effort": s.agent_effort, "simulator_model": s.simulator_model,
+            "judge_model": s.judge_model if use_judge else None, "fallbacks": s.use_fallbacks,
+            "prompt_hash": _hash(SYSTEM_PROMPT), "scenarios_hash": _hash((HERE / "scenarios.yaml").read_text()),
+            "repeats": repeats, "only": only or None}
+
+
+def write_report(results: list[dict], repeats: int, meta: dict) -> Path:
     out_dir = HERE / "reports"
     out_dir.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    (out_dir / f"{stamp}.json").write_text(json.dumps(results, indent=1, ensure_ascii=False))
+    (out_dir / f"{stamp}.json").write_text(json.dumps({"run": meta, "results": results}, indent=1, ensure_ascii=False))
 
     by_id: dict[str, list[dict]] = {}
     for r in results:
@@ -209,6 +236,9 @@ def write_report(results: list[dict], repeats: int) -> Path:
     judged = [r["judge"] for r in results if r.get("judge")]
     avg = lambda key: round(sum(j[key] for j in judged if j.get(key)) / max(1, sum(1 for j in judged if j.get(key))), 2)
     lines = [f"# Eval report {stamp}", "",
+             f"- Run: commit {meta['commit']}{' with uncommitted changes' if meta['dirty'] else ''}; agent "
+             f"{meta['agent_model']} ({meta['agent_effort']} effort); simulator {meta['simulator_model']}; judge "
+             f"{meta['judge_model'] or 'off'}; prompt {meta['prompt_hash']}; scenarios {meta['scenarios_hash']}",
              f"- Scenarios: {len(by_id)}, runs per scenario: {repeats}",
              f"- Runs passed: {pass_runs}/{len(results)}",
              f"- pass^{repeats} (every run of a scenario passed): {pass_all}/{len(by_id)}",
@@ -246,13 +276,14 @@ def main() -> None:
     scenarios = yaml.safe_load((HERE / "scenarios.yaml").read_text())
     if args.only:
         scenarios = [s for s in scenarios if s["id"] in args.only]
+    meta = run_metadata(args.repeats, not args.no_judge, args.only)  # read before the run, so edits mid-run don't count
     world, client = World.load(), anthropic.Anthropic()
     jobs = [s for s in scenarios for _ in range(args.repeats)]
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         results = list(pool.map(lambda s: run_one(world, client, s, not args.no_judge, args.max_turns), jobs))
     for r in results:
         print(f"{'PASS' if r['passed'] else 'FAIL'}  {r['id']:<34} {r.get('outcome', '-'):<16} {'; '.join(r['failures'])}")
-    print(f"\nReport: {write_report(results, args.repeats)}")
+    print(f"\nReport: {write_report(results, args.repeats, meta)}")
 
 
 if __name__ == "__main__":
