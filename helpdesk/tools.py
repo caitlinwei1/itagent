@@ -569,8 +569,9 @@ def escalate_to_human(ctx: ToolContext, a: Escalate) -> dict:
                                                   f"priority {prio}, target first response {RESPONSE_TARGETS[prio]}."})
     return {"ticket_id": ticket_id, "priority": prio, "assignment_group": team,
             "target_first_response": RESPONSE_TARGETS[prio],
-            "next": "Tell the employee the ticket number, who will contact them and when, that they won't need to "
-                    "repeat anything, and any workaround."}
+            "next": "Tell the employee the ticket number, who will contact them and when, and any workaround. If "
+                    "something the specialist will need is still missing, ask for it now and add it with "
+                    "add_ticket_note; promise they won't have to repeat themselves only when nothing is missing."}
 
 
 def add_ticket_note(ctx: ToolContext, a: TicketNote) -> dict:

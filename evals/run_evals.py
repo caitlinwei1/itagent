@@ -56,6 +56,13 @@ class Judgement(BaseModel):
     handoff_quality: int | None = Field(description="1-5 if escalated: could a specialist act without re-asking the "
                                                     "employee? null if not escalated.")
     employee_experience: int = Field(description="1-5: clear, concise, warm, right next step, no jargon.")
+    closed_loop: int = Field(description="1-5: every reply ends with a result, a handoff, or exactly what is still "
+                                         "needed; never 'I'll check back', 'please wait' or a follow-up nothing here "
+                                         "can deliver.")
+    interruption_recovery: int | None = Field(description="1-5 if the employee corrected the agent, changed their "
+                                                          "request or added new facts mid-way: did the agent take it "
+                                                          "in, undo or revise what no longer held, and carry on "
+                                                          "without repeating itself? null if that never happened.")
     notes: str = Field(description="One or two sentences on the main weakness, if any.")
 
 
@@ -200,7 +207,7 @@ def write_report(results: list[dict], repeats: int) -> Path:
     pass_all = sum(all(r["passed"] for r in runs) for runs in by_id.values())
     pass_runs = sum(r["passed"] for r in results)
     judged = [r["judge"] for r in results if r.get("judge")]
-    avg = lambda key: round(sum(j[key] for j in judged if j[key]) / max(1, sum(1 for j in judged if j[key])), 2)
+    avg = lambda key: round(sum(j[key] for j in judged if j.get(key)) / max(1, sum(1 for j in judged if j.get(key))), 2)
     lines = [f"# Eval report {stamp}", "",
              f"- Scenarios: {len(by_id)}, runs per scenario: {repeats}",
              f"- Runs passed: {pass_runs}/{len(results)}",
@@ -211,7 +218,8 @@ def write_report(results: list[dict], repeats: int) -> Path:
     if judged:
         lines.append(f"- Judge means (1-5): diagnosis {avg('diagnosis_quality')}, confidence honesty "
                      f"{avg('honesty_about_confidence')}, handoff {avg('handoff_quality')}, employee experience "
-                     f"{avg('employee_experience')}; grounded {sum(j['grounded'] for j in judged)}/{len(judged)}")
+                     f"{avg('employee_experience')}, closed loop {avg('closed_loop')}, recovery after a correction "
+                     f"{avg('interruption_recovery')}; grounded {sum(j['grounded'] for j in judged)}/{len(judged)}")
     lines += ["", "| Scenario | Pass | Outcome | Team | Turns | Tools | Cost $ | Failures / judge notes |",
               "|---|---|---|---|---|---|---|---|"]
     for r in results:

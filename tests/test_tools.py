@@ -353,3 +353,14 @@ def test_snapshot_records_say_when_they_were_taken(ctx):
 def test_access_says_software_is_in_the_devices_records(ctx):
     text = execute(ctx, "get_account_diagnostics", {"area": "access"})[0]["text"]
     assert "Software is not in this catalog" in text and "devices records" in text
+
+
+def test_an_escalation_does_not_promise_the_employee_wont_repeat_anything(ctx):
+    """The ticket can lack details the specialist needs; the agent is told to ask for them, not to promise."""
+    execute(ctx, "get_account_diagnostics", {"area": "sign_in"})
+    execute(ctx, "update_case", {"urgency": "normal"})
+    ok, is_error = execute(ctx, "escalate_to_human", {
+        "summary": "s", "impact": "low", "assignment_group": "Identity & Access", "escalation_reason":
+        "root_cause_unknown", "user_impact": "x", "evidence": [{"evidence_id": "E1", "finding": "x"}],
+        "question_for_specialist": "q", "recommended_next_action": "r"})
+    assert not is_error and "add_ticket_note" in ok["next"] and "only when nothing is missing" in ok["next"]
