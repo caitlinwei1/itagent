@@ -74,6 +74,9 @@ class PerformAction(BaseModel):
     consent_words: str | None = Field(None, description="For push_software_update and grant_access: the employee's "
                                                         "own words agreeing to this change, copied from their message "
                                                         "after you asked about it.")
+    situation_words: str | None = Field(None, description="For add_user_to_incident: the employee's own words, copied "
+                                                          "from their message, saying the incident's conditions apply "
+                                                          "to them (where they are or which network, and the symptom).")
 
 
 class HypothesisIn(BaseModel):
@@ -406,7 +409,7 @@ def perform_action(ctx: ToolContext, a: PerformAction) -> dict:
         if earlier:
             return {"text": f"Already done earlier in this case, so nothing was repeated: {earlier.detail}",
                     "record": {"executed": True, "already_done": True, "detail": earlier.detail}}
-    decision = ctx.policy.evaluate(a.action, ctx.user, ctx.case, a.target, a.consent_words)
+    decision = ctx.policy.evaluate(a.action, ctx.user, ctx.case, a.target, a.consent_words, a.situation_words)
     if decision.decision != "allow":
         ctx.record_action(a.action, a.target, decision.decision, False, decision.reason, decision.team)
         text = f"Not done. Policy decision: {decision.decision}. {decision.reason}"

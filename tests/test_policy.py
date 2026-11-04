@@ -130,8 +130,17 @@ def test_approval_needed(world):
     assert facts.approval_needed(world.users["u-alex"], r["snowflake-prod-write"]) == "not_requestable"
 
 
-def test_linking_to_an_incident_needs_the_records_to_put_the_employee_in_its_scope(world):
+def test_linking_to_an_incident_needs_the_records_and_the_employees_own_words(world):
     e = engine(world)
-    link = lambda uid: e.evaluate("add_user_to_incident", world.users[uid], case(uid), "INC-2051")  # noqa: E731
-    assert link("u-david").decision == "allow"  # Chicago; INC-2051 covers Chicago
-    assert link("u-priya").missing == ["incident_covers_employee"]  # remote in Austin
+
+    def link(uid, said, words):
+        c = case(uid)
+        c.employee_messages = said
+        return e.evaluate("add_user_to_incident", world.users[uid], c, "INC-2051", situation_words=words)
+
+    office = ["Salesforce is slow", "I'm in the Chicago office on the office wifi"]
+    assert link("u-david", office, "in the Chicago office on the office wifi").decision == "allow"
+    assert link("u-priya", office, "in the Chicago office").missing == ["incident_covers_employee"]  # Austin
+    # The record puts David in Chicago, but that alone doesn't say the incident applies to him today
+    assert link("u-david", ["Salesforce is slow"], None).missing == ["employee_describes_incident"]
+    assert link("u-david", office, "I'm on the Chicago office network").missing == ["employee_describes_incident"]

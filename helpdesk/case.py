@@ -103,6 +103,13 @@ def _resolved(case: "CaseFrame", basis: dict) -> str | None:
     return None
 
 
+def said_by_employee(case: "CaseFrame", words: str | None) -> bool:
+    """`words` are words (not a code) copied from one of the employee's messages. Whether they mean what the agent
+    takes them to mean is the model's judgement; this checks that the employee said them."""
+    w = _norm(words or "")
+    return any(ch.isalpha() for ch in w) and any(w in _norm(m) for m in case.employee_messages)
+
+
 def consent_given(case: "CaseFrame", words: str | None, names: list[str]) -> bool:
     """The employee agreed to this change: `words` come from one of their messages that answers an agent reply
     naming the thing being changed, and they are words, not a code. Whether the words mean "yes" is the model's

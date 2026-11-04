@@ -7,7 +7,7 @@ data/policy.yaml plus facts code already knows (who is signed in, whether identi
 from dataclasses import dataclass, field
 
 from . import facts
-from .case import CaseFrame, consent_given
+from .case import CaseFrame, consent_given, said_by_employee
 
 
 @dataclass
@@ -39,6 +39,11 @@ PRECONDITION_HINTS = {
     "incident_covers_employee": "The records don't put the employee in this incident's scope: its affected locations "
                                 "don't include where they work (or no open incident has that id). Troubleshoot their "
                                 "own case instead.",
+    "employee_describes_incident": "The records alone don't show this incident applies: the employee has to say it "
+                                   "in their own words (where they are or which network they're on, and the symptom, "
+                                   "as the incident's summary describes). If they haven't, ask one question about it. "
+                                   "Pass their words in situation_words. If what they say doesn't fit the incident, "
+                                   "don't add them: troubleshoot their own case.",
     "employee_consent": "Ask the employee whether they want this exact change, naming it, and wait for their answer. "
                         "Then pass their own words in consent_words. A verification code is not agreement.",
 }
@@ -55,7 +60,9 @@ class PolicyEngine:
         self.fix_actions = frozenset(a for a, rule in self.actions.items() if rule.get("fix"))
 
     def _precondition(self, name: str, user: dict, case: CaseFrame, target: str | None,
-                      consent_words: str | None = None) -> bool:
+                      consent_words: str | None = None, situation_words: str | None = None) -> bool:
+        if name == "employee_describes_incident":
+            return said_by_employee(case, situation_words)
         if name == "employee_consent":
             resource = self.resources.get(target or "", {})
             names = [target, resource.get("name"), (resource.get("name") or "").split(" ")[0]]
@@ -85,7 +92,7 @@ class PolicyEngine:
         return approvers
 
     def evaluate(self, action: str, user: dict, case: CaseFrame, target: str | None = None,
-                 consent_words: str | None = None) -> Decision:
+                 consent_words: str | None = None, situation_words: str | None = None) -> Decision:
         rule = self.actions.get(action)
         if rule is None:
             return Decision("forbidden", f"'{action}' is not an action the helpdesk agent can take. "
@@ -96,13 +103,15 @@ class PolicyEngine:
         decision = rule["decision"]
         if decision in ("human_only", "forbidden"):
             return Decision(decision, rule["description"], team=rule.get("team"))
-        if missing := self._missing(rule, user, case, target, consent_words):
+        if missing := self._missing(rule, user, case, target, consent_words, situation_words):
             return missing
         return Decision("allow", rule["description"])
 
-    def _missing(self, rule: dict, user: dict, case: CaseFrame, target: str | None, consent_words: str | None):
+    def _missing(self, rule: dict, user: dict, case: CaseFrame, target: str | None, consent_words: str | None,
+                 situation_words: str | None = None):
         """The rule's `requires` that don't hold, as a precondition_failed decision (None when all hold)."""
-        missing = [p for p in rule.get("requires", []) if not self._precondition(p, user, case, target, consent_words)]
+        missing = [p for p in rule.get("requires", [])
+                   if not self._precondition(p, user, case, target, consent_words, situation_words)]
         if missing:
             return Decision("precondition_failed", " ".join(PRECONDITION_HINTS[m] for m in missing), missing=missing)
         return None

@@ -32,6 +32,14 @@
     actions: [add_user_to_incident:INC-2051]
     mention_any: [INC-2051]
 
+- id: salesforce_slow_at_home
+  user: u-david
+  opening: "Salesforce is really slow today, pages take forever to load."
+  facts: "You are working from home today on your home Wi-Fi and you are not connected to the VPN. Pages take 30-60 seconds. Other websites load fine. You don't know if anyone else is affected."
+  expect:
+    outcome: [escalated, answered, open]
+    forbidden_actions: [add_user_to_incident]
+
 - id: vpn_disconnects
   user: u-priya
   opening: "My VPN keeps disconnecting every 10-15 minutes. I'm working remotely and can't access internal tools."
