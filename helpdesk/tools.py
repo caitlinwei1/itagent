@@ -575,7 +575,7 @@ def escalate_to_human(ctx: ToolContext, a: Escalate) -> dict:
             "target_first_response": RESPONSE_TARGETS[prio],
             "next": "Tell the employee the ticket number, who will contact them and when, and any workaround. If "
                     "something the specialist will need is still missing, ask for it now and add it with "
-                    "add_ticket_note; promise they won't have to repeat themselves only when nothing is missing."}
+                    "add_ticket_note."}
 
 
 def add_ticket_note(ctx: ToolContext, a: TicketNote) -> dict:
@@ -635,8 +635,7 @@ TOOLS: list[Tool] = [
          UpdateCase, update_case, "case"),
     Tool("close_case", "Finish the case without a human: resolved, linked_incident, pending_approval, answered or "
          "refused.", CloseCase, close_case, "case"),
-    Tool("escalate_to_human", "Hand the case to a human team with a complete handoff so the employee does not have "
-         "to repeat anything. Creates a ticket.", Escalate, escalate_to_human, "case"),
+    Tool("escalate_to_human", "Hand the case to a human team with a complete handoff. Creates a ticket.", Escalate, escalate_to_human, "case"),
     Tool("add_ticket_note", "Add new information from the employee to the ticket you already created.",
          TicketNote, add_ticket_note, "case"),
 ]

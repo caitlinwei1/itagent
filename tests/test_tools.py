@@ -364,12 +364,17 @@ def test_access_says_software_is_in_the_devices_records(ctx):
     assert "Software is not in this catalog" in text and "devices records" in text
 
 
-def test_an_escalation_does_not_promise_the_employee_wont_repeat_anything(ctx):
-    """The ticket can lack details the specialist needs; the agent is told to ask for them, not to promise."""
+def test_nothing_tells_the_agent_to_promise_the_employee_wont_repeat_anything(ctx):
+    """The ticket can lack details the specialist needs; the agent is told to ask for them. No text the model sees
+    offers "you won't have to repeat yourself" as something to say (it was repeated in 118 of 120 escalations)."""
+    from helpdesk.prompts import SYSTEM_PROMPT
+    from helpdesk.tools import TOOLS
+    assert "repeat" not in SYSTEM_PROMPT.replace("prevents a repeat", "")
+    assert all("repeat" not in t.description for t in TOOLS)
     execute(ctx, "get_account_diagnostics", {"area": "sign_in"})
     execute(ctx, "update_case", {"urgency": "normal"})
     ok, is_error = execute(ctx, "escalate_to_human", {
         "summary": "s", "impact": "low", "assignment_group": "Identity & Access", "escalation_reason":
         "root_cause_unknown", "user_impact": "x", "evidence": [{"evidence_id": "E1", "finding": "x"}],
         "question_for_specialist": "q", "recommended_next_action": "r"})
-    assert not is_error and "add_ticket_note" in ok["next"] and "only when nothing is missing" in ok["next"]
+    assert not is_error and "add_ticket_note" in ok["next"] and "repeat" not in ok["next"]
