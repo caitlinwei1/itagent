@@ -124,7 +124,7 @@ Test：`python -m pytest -q`。Eval：`python -m evals.run_evals --repeats 3`。
 
 ## 8. 如何评估
 
-1. **单元 test**（`tests/`，55 个，不调用 model）：policy 决定、身份验证、同意、结案条件、故障注入、交接、优先级，以及"每个决定只有一个负责的地方"。
+1. **单元 test**（`tests/`，56 个，不调用 model）：policy 决定、身份验证、同意、结案条件、故障注入、交接、优先级，以及"每个决定只有一个负责的地方"。
 2. **场景 eval**（`evals/scenarios.yaml`，19 个场景）：每个场景由一个模拟员工（Claude Haiku，带人设和隐藏信息）和 agent 对话到结束，然后：
    - **code 检查**最终状态：结局、团队、优先级、执行的动作和禁止的动作、必须出现和不能出现的内容；
    - **judge model**（Claude Opus）检查回复里的每一句话在 tool 结果里有没有依据，并给诊断、诚实程度、交接质量、员工体验、是否闭环，以及员工中途纠正后能否调整打分；

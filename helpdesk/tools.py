@@ -338,7 +338,8 @@ def describe_devices(user: dict, approved: dict[str, str]) -> str:
             if s is None:
                 lines.append(f"- {app}: {installed}.")
             elif s["approved"] is None:
-                lines.append(f"- {app}: {installed}. Not on the approved software list.")
+                lines.append(f"- {app}: {installed}. No approved version on file, so Self Service can't update it; "
+                             f"this doesn't mean the app isn't allowed.")
             else:
                 same = " (the approved version)" if s["current"] else ""
                 lines.append(f"- {app}: {installed}{same}. Approved version: {s['approved']}.")

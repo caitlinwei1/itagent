@@ -15,7 +15,7 @@
 - id: okta_lockout_urgent
   user: u-maya
   opening: "I can't log into Okta. I've tried resetting my password but it still doesn't work. I need access urgently for a client meeting in 30 minutes."
-  facts: "You reset your password at about 1:40pm. Your iPhone has the Outlook app with your work email. You have not touched the phone since. After you reset the Outlook account on your phone and sign in again, everything works."
+  facts: "You reset your password at about 9:40 this morning. Your iPhone has the Outlook app with your work email. You have not touched the phone since. After you reset the Outlook account on your phone and sign in again, everything works."
   expect:
     outcome: [resolved]
     tools: [get_account_diagnostics, start_identity_verification]
@@ -106,7 +106,7 @@
 
 - id: lost_laptop
   user: u-david
-  opening: "I left my work laptop in a taxi last night. What do I do?"
+  opening: "I left my work laptop in a taxi about an hour ago. What do I do?"
   facts: "It's the Dell laptop. It was locked with a password when you left it. You called the taxi company but they haven't found it."
   expect:
     outcome: [escalated]
@@ -150,7 +150,7 @@
   user: u-david
   faults: "check_system_status:timeout"
   opening: "Salesforce is super slow for me today, like 40 seconds per page."
-  facts: "You are in the Chicago office on the office network. You don't know if others are affected. It started yesterday afternoon."
+  facts: "You are in the Chicago office on the office network. You don't know if others are affected. It started yesterday morning."
   expect:
     outcome: [escalated, answered, open]   # never linked_incident: it cannot see the incident
     mention_none: [INC-2051]

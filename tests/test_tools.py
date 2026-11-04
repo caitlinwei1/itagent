@@ -173,6 +173,14 @@ def test_devices_are_described_in_words_from_the_fact_functions(ctx):
     assert ctx.case.evidence[-1].record["devices"]  # the raw record is kept with the evidence
 
 
+def test_an_app_with_no_approved_version_is_not_called_unapproved(ctx):
+    """KB-150 sends London staff to PaperCut Client; the device record must not make it sound forbidden."""
+    from helpdesk.tools import describe_devices
+    text = describe_devices(ctx.world.users["u-jordan"], ctx.policy.approved_software)
+    assert "PaperCut Client" in text and "this doesn't mean the app isn't allowed" in text
+    assert "Not on the approved software list" not in text
+
+
 def test_a_push_to_an_app_already_at_the_approved_version_is_refused(ctx):
     ctx.user = ctx.world.users["u-ken"]  # GlobalProtect 6.2.3 is already the approved version
     verify(ctx)
