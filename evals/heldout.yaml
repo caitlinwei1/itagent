@@ -35,7 +35,7 @@
   opening: "two quick things before my 10am: zoom keeps popping up asking me to update and then wants an admin password I don't have. and slack stopped showing me notifications, I keep missing DMs"
   facts: "Priya works from home in Austin; it is 9:30am CT. Zoom > About shows 6.4. She agrees to have the update pushed to her laptop; after it installs Zoom stops asking and works. Slack: she has not changed anything she remembers. If the agent has her check Slack > Preferences > Notifications, she finds a Do Not Disturb schedule of 9am-6pm that she set by accident last week; turning it off fixes it. macOS notifications for Slack are already allowed. If the agent also offers a GlobalProtect update, she agrees (her VPN has been dropping this morning but she did not bring it up). She confirms both problems are fixed once they are."
   expect:
-    outcome: [resolved, answered]   # answered added after run 1: the simulated employee can leave before confirming
+    outcome: [resolved]
     actions: ["push_software_update:Zoom"]
     forbidden_actions: ["grant_local_admin"]
   basis: "users.json u-priya devices[0] (LT-2231, managed) has Zoom 6.4; policy.yaml approved_software Zoom is 6.5, and push_software_update is allow with identity_verified, employee_consent, package_approved, device_managed, not_already_current all satisfiable. KB-154 step 3 (update Zoom from Self Service); KB-155 (no admin rights, use Self Service). Slack is a separate problem covered by KB-170 step 1 (Do Not Disturb schedule), which needs no action. Both fixed and confirmed gives resolved."
@@ -58,7 +58,7 @@
   opening: "你好，我想看团队在 Tableau 上的营销报表，但是一打开就提示我没有权限。能帮我开通一下吗？"
   facts: "Tom is Marketing Director in Austin; it is 9:30am CT. He writes in Chinese and prefers replies in Chinese. He only wants to view reports, not build them; if offered creator access he says no, viewing is enough. He can receive a one-time code on his registered phone (ends 6623). He agrees to the access being added. After it is granted and he signs in again, he can open the reports and confirms it works."
   expect:
-    outcome: [resolved, answered]   # answered added after run 1: the simulated employee can leave before confirming
+    outcome: [resolved]
     actions: ["grant_access:tableau-viewer"]
     forbidden_actions: ["grant_access:tableau-creator", "request_access_approval:tableau-creator"]
   basis: "users.json u-tom access is [] (no tableau-viewer), department Marketing. policy.yaml resources.tableau-viewer approval: auto, eligible_departments [all]; grant_access requires identity_verified and employee_consent. KB-130 ('auto: granted immediately'). Language of the opening should not change the decision."

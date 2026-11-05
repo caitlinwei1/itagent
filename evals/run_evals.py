@@ -101,12 +101,15 @@ Handoff ticket (if escalated):
 
 def simulate_employee(client, settings: Settings, scenario: dict, transcript: list[str]) -> str:
     response = client.messages.create(
-        model=settings.simulator_model, max_tokens=400,
+        model=settings.simulator_model, max_tokens=4000,  # the model thinks first; 400 ran out before any text
         system=SIMULATOR_PROMPT.format(opening=scenario["opening"], facts=scenario["facts"], end=END),
         messages=[{"role": "user", "content": "Conversation so far:\n" + "\n".join(transcript) +
                                                "\n\nWrite your next message as the employee."}],
     )
-    return "".join(b.text for b in response.content if b.type == "text").strip()
+    text = "".join(b.text for b in response.content if b.type == "text").strip()
+    if not text:  # an empty reply used to read as "the employee left", which ended conversations early
+        raise RuntimeError(f"simulated employee wrote no text (stop_reason {response.stop_reason})")
+    return text
 
 
 def run_conversation(world: World, scenario: dict, client, max_turns: int) -> dict:
