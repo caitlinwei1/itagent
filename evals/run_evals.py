@@ -53,7 +53,8 @@ the agent has clearly finished, reply with exactly {end}
 
 class Judgement(BaseModel):
     grounded: bool = Field(description="True if every factual claim the agent made to the employee is supported by "
-                                       "the tool results or the knowledge base articles it read.")
+                                       "the tool results, the knowledge base articles it read, the session context, or its "
+                                       "standing instructions.")
     unsupported_claims: list[str] = Field(description="Claims not supported by tool results (empty if none).")
     diagnosis_quality: int = Field(description="1-5: checked shared status before individual troubleshooting, "
                                                "used evidence, asked only necessary questions.")
@@ -78,6 +79,11 @@ Scenario: {scenario}
 
 Session context the agent was given by the system (treat as ground truth, like a tool result):
 {session}
+
+The agent's standing instructions. They are true statements about how this helpdesk works (for example what it can \
+see, change or promise), so an agent stating one of these rules is grounded. They are not evidence about this \
+employee's case:
+{rules}
 
 Conversation (employee and agent messages, with system notices):
 {transcript}
@@ -173,7 +179,7 @@ def judge(client, settings: Settings, scenario: dict, run: dict) -> dict:
     tools = [f"{e['name']}({json.dumps(e['input'], ensure_ascii=False)}) -> "
              f"{json.dumps(e['result'], ensure_ascii=False, default=str)[:1500]}"
              for e in run["events"] if e["type"] == "tool_call"]
-    prompt = JUDGE_PROMPT.format(session=run["agent"]._session_note, scenario=json.dumps({k: scenario[k] for k in ("opening", "facts")}),
+    prompt = JUDGE_PROMPT.format(session=run["agent"]._session_note, rules=SYSTEM_PROMPT, scenario=json.dumps({k: scenario[k] for k in ("opening", "facts")}),
                                  transcript="\n".join(run["transcript"]), tools="\n".join(tools),
                                  case=run["agent"].case.model_dump_json(include={"status", "hypotheses", "claims",
                                                                                  "actions", "outcome_summary"}),
@@ -211,14 +217,14 @@ def _hash(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:12]
 
 
-def run_metadata(repeats: int, use_judge: bool, only: list[str] | None) -> dict:
+def run_metadata(repeats: int, use_judge: bool, only: list[str] | None, file: str = "scenarios.yaml") -> dict:
     """What produced this run. `dirty` counts tracked files only, so a stray untracked note doesn't mark it."""
     s = Settings()
     return {"commit": _git("rev-parse", "--short", "HEAD") or "unknown",
             "dirty": bool(_git("status", "--porcelain", "--untracked-files=no")),
             "agent_model": s.agent_model, "agent_effort": s.agent_effort, "simulator_model": s.simulator_model,
             "judge_model": s.judge_model if use_judge else None, "fallbacks": s.use_fallbacks,
-            "prompt_hash": _hash(SYSTEM_PROMPT), "scenarios_hash": _hash((HERE / "scenarios.yaml").read_text()),
+            "prompt_hash": _hash(SYSTEM_PROMPT), "scenarios_file": file, "scenarios_hash": _hash((HERE / file).read_text()),
             "repeats": repeats, "only": only or None}
 
 
@@ -238,7 +244,7 @@ def write_report(results: list[dict], repeats: int, meta: dict) -> Path:
     lines = [f"# Eval report {stamp}", "",
              f"- Run: commit {meta['commit']}{' with uncommitted changes' if meta['dirty'] else ''}; agent "
              f"{meta['agent_model']} ({meta['agent_effort']} effort); simulator {meta['simulator_model']}; judge "
-             f"{meta['judge_model'] or 'off'}; prompt {meta['prompt_hash']}; scenarios {meta['scenarios_hash']}",
+             f"{meta['judge_model'] or 'off'}; prompt {meta['prompt_hash']}; scenarios {meta.get('scenarios_file', 'scenarios.yaml')} {meta['scenarios_hash']}",
              f"- Scenarios: {len(by_id)}, runs per scenario: {repeats}",
              f"- Runs passed: {pass_runs}/{len(results)}",
              f"- pass^{repeats} (every run of a scenario passed): {pass_all}/{len(by_id)}",
@@ -267,16 +273,17 @@ def write_report(results: list[dict], repeats: int, meta: dict) -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", nargs="*", help="scenario ids to run")
+    parser.add_argument("--file", default="scenarios.yaml", help="scenario file in evals/, e.g. heldout.yaml")
     parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument("--no-judge", action="store_true")
     parser.add_argument("--max-turns", type=int, default=7)
     parser.add_argument("--workers", type=int, default=4)
     args = parser.parse_args()
 
-    scenarios = yaml.safe_load((HERE / "scenarios.yaml").read_text())
+    scenarios = yaml.safe_load((HERE / args.file).read_text())
     if args.only:
         scenarios = [s for s in scenarios if s["id"] in args.only]
-    meta = run_metadata(args.repeats, not args.no_judge, args.only)  # read before the run, so edits mid-run don't count
+    meta = run_metadata(args.repeats, not args.no_judge, args.only, args.file)  # read before the run, so edits mid-run don't count
     world, client = World.load(), anthropic.Anthropic()
     jobs = [s for s in scenarios for _ in range(args.repeats)]
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
