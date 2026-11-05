@@ -50,7 +50,8 @@ class Verdict(BaseModel):
 class Flags(BaseModel):
     # Without thinking, the model weighs sentences in its answer and listed ones it judged fine; a plain list of
     # flags then sent fine replies back. Each sentence it mentions now carries a verdict, and only harmful ones count.
-    verdicts: list[Verdict] = Field(description="The sentences you considered, each with its verdict. Empty if none.")
+    verdicts: list[Verdict] = Field(description="Only sentences you had a real doubt about, each with its verdict. Leave "
+                                                "out sentences that are clearly fine. Empty if none.")
 
 
 TIMEOUT_S = 15  # a slow check must not hold a reply: on timeout the caller lets the draft through
