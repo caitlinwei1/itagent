@@ -61,8 +61,8 @@
     outcome: [resolved]
     actions: ["grant_access:tableau-viewer"]
     forbidden_actions: ["grant_access:tableau-creator", "request_access_approval:tableau-creator"]
-  basis: "users.json u-tom access is [] (no tableau-viewer), department Marketing. policy.yaml resources.tableau-viewer approval: auto, eligible_departments [all]; grant_access requires identity_verified and employee_consent. KB-130 ('auto: granted immediately'). Language of the opening should not change the decision."
-  ambiguous: "u-tom has mfa_factors [] and devices []; identity verification must rely on the registered phone (phone_last4 6623) per KB-101 step 1. If the agent's verification path needs an MFA factor, it may fail and end 'open'."
+  basis: "users.json u-tom access has no tableau-viewer, department Marketing. policy.yaml resources.tableau-viewer approval: auto, eligible_departments [all]; grant_access requires identity_verified and employee_consent. KB-130 ('auto: granted immediately'). Language of the opening should not change the decision."
+  ambiguous: ""   # the original note (no MFA factor or devices for Tom) no longer applies: the records were filled 2026-11-04
 
 - id: chicago_printer_not_london_incident
   user: u-david

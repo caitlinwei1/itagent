@@ -41,7 +41,7 @@ def index() -> FileResponse:
 @app.get("/api/users")
 def users() -> list[dict]:
     return [{"user_id": u["user_id"], "name": u["name"], "title": u["title"], "department": u["department"],
-             "location": u["location"]} for u in WORLD.users.values() if u["devices"]]
+             "location": u["location"]} for u in WORLD.users.values()]
 
 
 @app.post("/api/session")
