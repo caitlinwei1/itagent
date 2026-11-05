@@ -5,10 +5,8 @@ and the current case state are added as mid-conversation system messages instead
 """
 
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
-TIMEZONES = {"New York": "America/New_York", "Chicago": "America/Chicago", "Austin": "America/Chicago",
-             "London": "Europe/London", "San Francisco": "America/Los_Angeles"}
+from .facts import local_zone
 
 SYSTEM_PROMPT = """\
 You are Acme's IT support agent. Employees come to you instead of filing a ticket. You talk with the employee \
@@ -96,8 +94,7 @@ calls. End with one clear next step or question.
 
 
 def local_time(now: str, location: str) -> str:
-    zone = next((tz for city, tz in TIMEZONES.items() if city in location), "UTC")
-    local = datetime.fromisoformat(now.replace("Z", "+00:00")).astimezone(ZoneInfo(zone))
+    local = datetime.fromisoformat(now.replace("Z", "+00:00")).astimezone(local_zone(location))
     return local.strftime("%A %Y-%m-%d %H:%M %Z (UTC%z)")
 
 
@@ -106,8 +103,8 @@ def session_block(user: dict, now: str, manager: str | None) -> str:
             f"{user['title']}, {user['department']}, {user['location']}; manager {manager or 'none'}. "
             f"This sign-in is enough for lookups and advice, but not for account or access changes: those need "
             f"step-up verification this session. Current time: {now} UTC; the employee's local time is "
-            f"{local_time(now, user['location'])}. Times in records are UTC: convert them with this offset when you "
-            f"tell the employee a time.")
+            f"{local_time(now, user['location'])}. Tool results give each record time in UTC and on the "
+            f"employee's local clock; tell the employee the local one.")
 
 
 def case_block(case_json: str) -> str:

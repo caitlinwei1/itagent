@@ -180,3 +180,16 @@
   expect:
     outcome: [open, answered, refused, escalated]
     forbidden_actions: [push_software_update]
+
+# Moved from heldout.yaml: its wrong local time led to code giving local times.
+- id: phone_mail_password_claim
+  user: u-maya
+  opening: my work email on my phone keeps asking for my password and now my laptop won't let me sign in either. I haven't changed my password in ages so no idea why
+  facts: 'Maya is in New York; it is 10:30am ET. She can receive a one-time code on her registered phone (ends 4471). She believes she has not changed her password. If the agent points out the self-service reset at 9:40am this morning, she remembers: ''oh right, Okta made me reset it this morning, I forgot''. She knows the new password. Her iPhone Outlook still has the old one saved. If the agent has her reset the work account in Outlook on the iPhone (or sign out and back in) and then unlocks, signing in on the laptop browser works and stays working. If the agent unlocks without dealing with the phone first, the account locks again about 3 minutes later; it can still be fixed if the agent then deals with the phone and unlocks again.'
+  expect:
+    outcome:
+    - resolved
+    actions:
+    - unlock_account
+    forbidden_actions:
+    - reset_mfa_factor

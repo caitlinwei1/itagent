@@ -124,8 +124,8 @@ Test：`python -m pytest -q`。Eval：`python -m evals.run_evals --repeats 3`。
 
 ## 8. 如何评估
 
-1. **单元 test**（`tests/`，57 个，不调用 model）：policy 决定、身份验证、同意、结案条件、故障注入、交接、优先级，以及"每个决定只有一个负责的地方"。
-2. **场景 eval**（`evals/scenarios.yaml`，19 个场景）：每个场景由一个模拟员工（Claude Haiku，带人设和隐藏信息）和 agent 对话到结束，然后：
+1. **单元 test**（`tests/`，58 个，不调用 model）：policy 决定、身份验证、同意、结案条件、故障注入、交接、优先级，以及"每个决定只有一个负责的地方"。
+2. **场景 eval**（`evals/scenarios.yaml`，20 个场景）：每个场景由一个模拟员工（Claude Haiku，带人设和隐藏信息）和 agent 对话到结束，然后：
    - **code 检查**最终状态：结局、团队、优先级、执行的动作和禁止的动作、必须出现和不能出现的内容；
    - **judge model**（Claude Opus）检查回复里的每一句话在 tool 结果里有没有依据，并给诊断、诚实程度、交接质量、员工体验、是否闭环，以及员工中途纠正后能否调整打分；
    - 每个场景跑 3 次，报告 pass^3。
@@ -141,6 +141,8 @@ Test：`python -m pytest -q`。Eval：`python -m evals.run_evals --repeats 3`。
 | 回复有依据（judge） | 52/54 |
 
 平均每段对话 $0.04，约 19 秒。judge 判为失败的运行，我都会对照 trace 复核。
+
+上面的场景是边改边写的，分数偏乐观。所以另有一份盲测集（`evals/heldout.yaml`）：由一个只读过 `data/`、没看过 prompt 和代码的 session 按 KB 和 policy 写出期望，我复核了标注，不对着它调 prompt。第一次运行（12 个场景 × 3）：36 次里没有一次执行禁止的动作，该转交、该提交审批的都做对了；失败主要是 agent 在事实旁边加了没标明的推测，还有一次把 UTC 时间换算错了。换算错误由 code 修复（tool 结果同时给出员工的本地时间），这个场景随之移进了 `scenarios.yaml`。
 
 已知缺口：在最近一次完整运行里，22 次转交中有 1 次（status_page_down）在收集 KB-110 要求的页面名和时间之前就转交了，之后才问。我考虑过让 code 根据读过的 KB 检查交接字段，但读过一篇文章不代表它适用于这个问题，而且 code 只能检查字段在不在，检查不了内容真假，反而会逼 agent 编造。所以没有加这道检查，只是改了转交结果的提示：信息还缺时，让 agent 当场补问并用 `add_ticket_note` 补进 ticket。这类问题由 judge 的交接评分来衡量。
 

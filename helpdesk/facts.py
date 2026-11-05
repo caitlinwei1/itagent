@@ -4,6 +4,23 @@ Policy and actions call these to decide; tools call the same functions to descri
 Nothing else works a fact out on its own, so a decision and what the model was told can't disagree.
 """
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+TIMEZONES = {"New York": "America/New_York", "Chicago": "America/Chicago", "Austin": "America/Chicago",
+             "London": "Europe/London", "San Francisco": "America/Los_Angeles"}
+
+
+def local_zone(location: str) -> ZoneInfo:
+    """The employee's time zone, from the city in their location (UTC when the city isn't known)."""
+    return ZoneInfo(next((tz for city, tz in TIMEZONES.items() if city in location), "UTC"))
+
+
+def local_clock(iso: str, location: str) -> str:
+    """A UTC record time on the employee's wall clock, e.g. 'Thu 9:40 AM EDT'."""
+    local = datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(local_zone(location))
+    return local.strftime("%a %-I:%M %p %Z")
+
 
 def has_access(user: dict, resource_id: str) -> bool:
     """The employee already holds this catalog resource."""

@@ -173,6 +173,18 @@ def test_devices_are_described_in_words_from_the_fact_functions(ctx):
     assert ctx.case.evidence[-1].record["devices"]  # the raw record is kept with the evidence
 
 
+def test_record_times_come_with_the_employees_local_clock(ctx):
+    """The model once told a New York employee her 13:40 UTC reset was at 6:40 AM; code does the conversion now."""
+    result, _ = execute(ctx, "get_account_diagnostics", {"area": "sign_in"})  # Maya, New York
+    assert result["account"]["password_last_changed"] == "2026-10-22T13:40:00Z (Thu 9:40 AM EDT local)"
+    ctx.user = ctx.world.users["u-david"]  # Chicago
+    status, _ = execute(ctx, "check_system_status", {"systems": ["Salesforce"]})
+    assert "Started 2026-10-21 14:10 UTC (Wed 9:10 AM CDT local)" in status["text"]
+    from helpdesk import facts
+    assert facts.local_clock("2026-10-22T14:30:00Z", "London") == "Thu 3:30 PM BST"
+    assert facts.local_clock("2026-10-22T14:30:00Z", "Remote (Austin)") == "Thu 9:30 AM CDT"
+
+
 def test_an_app_with_no_approved_version_is_not_called_unapproved(ctx):
     """KB-150 sends London staff to PaperCut Client; the device record must not make it sound forbidden."""
     from helpdesk.tools import describe_devices

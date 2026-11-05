@@ -8,6 +8,7 @@ tool arguments, so the agent cannot look at or change anyone else's records.
 import itertools
 import json
 import random
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -238,15 +239,15 @@ def check_system_status(ctx: ToolContext, a: CheckStatus) -> dict:
         for i in incidents:
             covered = "covers" if facts.incident_covers(i, user) else "does not cover"
             lines.append(f"- Open incident {i['id']} ({i['severity']}, {i['status']}): {i['title']}. Started "
-                         f"{_utc(i['started_at'])}. Affected locations: {', '.join(i['affected_locations'])}; this "
+                         f"{_when(i['started_at'], user)}. Affected locations: {', '.join(i['affected_locations'])}; this "
                          f"{covered} your location. Summary: {i['summary']} Workaround: {(i['workaround'] or 'none listed').rstrip('.')}."
-                         f" ETA: {_utc(i['eta']) if i['eta'] else 'none published'}.")
+                         f" ETA: {_when(i['eta'], user) if i['eta'] else 'none published'}.")
         if not incidents:
             lines.append("- No open incidents.")
         for c in changes:
             timing = "".join(f" This was {_gap(facts.minutes_before(c['date'], i['started_at']))} {i['id']} started."
                              for i in incidents)
-            lines.append(f"- Change {c['id']} on {_utc(c['date'])} ({c['window']}): {c['description']}{timing}")
+            lines.append(f"- Change {c['id']} on {_when(c['date'], user)} ({c['window']}): {c['description']}{timing}")
     if unknown:
         lines.append(f"Not in the service catalog: {', '.join(unknown)}. Known services: "
                      f"{', '.join(s['name'] for s in ctx.world.services)}.")
@@ -256,6 +257,25 @@ def check_system_status(ctx: ToolContext, a: CheckStatus) -> dict:
 
 def _utc(iso: str) -> str:
     return iso.replace("T", " ").replace(":00Z", " UTC").replace("Z", " UTC")
+
+
+def _when(iso: str, user: dict) -> str:
+    """A record time in UTC and on the employee's clock, so the model never converts one itself."""
+    return f"{_utc(iso)} ({facts.local_clock(iso, user['location'])} local)"
+
+
+_ISO_TIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z$")
+
+
+def _with_local_times(value, user: dict):
+    """A raw record for the model, with every UTC timestamp also on the employee's clock."""
+    if isinstance(value, dict):
+        return {k: _with_local_times(v, user) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_with_local_times(v, user) for v in value]
+    if isinstance(value, str) and _ISO_TIME.match(value):
+        return f"{value} ({facts.local_clock(value, user['location'])} local)"
+    return value
 
 
 def _gap(minutes: int) -> str:
@@ -281,7 +301,7 @@ def get_account_diagnostics(ctx: ToolContext, a: Diagnostics) -> dict:
     u = ctx.user
     if a.area == "sign_in":
         acct = {k: v for k, v in u["account"].items()}
-        return {"account": acct, "sign_in_log": u["diagnostics"].get("sign_in", [])}
+        return _with_local_times({"account": acct, "sign_in_log": u["diagnostics"].get("sign_in", [])}, u)
     if a.area == "devices":
         return {"text": describe_devices(u, ctx.policy.approved_software),
                 "record": {"devices": u["devices"], "approved_software": ctx.policy.approved_software}}
@@ -289,14 +309,14 @@ def get_account_diagnostics(ctx: ToolContext, a: Diagnostics) -> dict:
         return {"text": describe_access(u, ctx.policy.resources),
                 "record": {"department": u["department"], "current_access": u["access"]}}
     if a.area == "mailbox" and (m := facts.mailbox_state(u)):
-        return {"text": f"Mailbox, as of {_utc(m['as_of'])}: {m['used_gb']} GB used. This mailbox's limits: Outlook "
+        return {"text": f"Mailbox, as of {_when(m['as_of'], u)}: {m['used_gb']} GB used. This mailbox's limits: Outlook "
                         f"warns at {m['warning_gb']} GB, stops sending at {m['send_limit_gb']} GB, and stops sending "
                         f"and receiving at {m['quota_gb']} GB. {MAILBOX_WORDS[m['state']]}",
                 "record": u["diagnostics"]["mailbox"]}
     data = u["diagnostics"].get(a.area)
     if not data:
         return {"area": a.area, "records": [], "note": "No records of this kind for this employee."}
-    return {"area": a.area, "records": data}
+    return {"area": a.area, "records": _with_local_times(data, u)}
 
 
 MAILBOX_WORDS = {"ok": "It is under all three limits.",
@@ -330,7 +350,7 @@ def describe_devices(user: dict, approved: dict[str, str]) -> str:
     lines = []
     for d in user["devices"]:
         managed = "managed" if d["managed"] else "not managed"
-        lines.append(f"{d['asset_id']} ({d['model']}, {d['os']}, {managed}), inventory as of {_utc(d['inventory_at'])}:")
+        lines.append(f"{d['asset_id']} ({d['model']}, {d['os']}, {managed}), inventory as of {_when(d['inventory_at'], user)}:")
         for app in d.get("software", {}):
             s = facts.software_state(user, approved, app) if d is facts.managed_laptop(user) else None
             version = facts.installed_version(d, app)
@@ -467,7 +487,7 @@ def perform_action(ctx: ToolContext, a: PerformAction) -> dict:
         detail = f"Added {u['name']} to {inc['id']} as an affected user."
         readback = {"incident": inc["id"], "affected_user_count_now": inc["affected_user_count"], "eta": inc["eta"]}
         after = (f"Only this employee was added; this adds nobody else. The incident now lists "
-                 f"{inc['affected_user_count']} affected users. Current ETA: {_utc(inc['eta'])}. Nothing here sends "
+                 f"{inc['affected_user_count']} affected users. Current ETA: {_when(inc['eta'], u)}. Nothing here sends "
                  f"the employee updates; they can ask for the incident's status at any time.")
     else:  # unreachable: the schema limits actions
         raise ValueError(a.action)
