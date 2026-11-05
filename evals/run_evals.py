@@ -1,9 +1,15 @@
-"""Run the scenario suite: a simulated employee talks to the agent, then deterministic checks and a judge score it.
+"""Run the scenario suite: a simulated employee talks to the agent, then code checks it, then a judge scores what
+code can't decide.
+
+Code first: the expected outcome and actions (scenarios.yaml), then rules on every reply (rules.py: versions, clock
+times, devices and references that appear nowhere in the evidence, actions claimed but not done, follow-up promises,
+language). The judge model only covers the rest (unsupported claims in free text, diagnosis, handoff quality), and by
+default only on runs that code passed: a run code failed has failed already.
 
     python -m evals.run_evals                       # all scenarios, once
     python -m evals.run_evals --only vpn_disconnects okta_lockout_urgent
     python -m evals.run_evals --repeats 3           # pass^3: a scenario counts only if all 3 runs pass
-    python -m evals.run_evals --no-judge            # skip the judge model (cheaper)
+    python -m evals.run_evals --judge all           # judge every run (default: code-passed; off: code only)
 
 Writes evals/reports/<timestamp>.md and .json. Both start with what produced the run (commit, whether the tree had
 uncommitted changes, the models, and hashes of the prompt and the scenarios), so two reports are compared only when
@@ -24,9 +30,11 @@ import yaml
 from pydantic import BaseModel, Field
 
 from helpdesk.agent import HelpdeskAgent
-from helpdesk.config import Settings
+from helpdesk.config import Settings, call_cost
 from helpdesk.prompts import SYSTEM_PROMPT
 from helpdesk.world import World
+
+from . import rules
 
 HERE = Path(__file__).parent
 END = "<<END>>"
@@ -82,6 +90,9 @@ You are reviewing an IT support agent's conversation with an employee. Judge str
 
 Scenario: {scenario}
 
+Code has already checked versions, clock times, device and ticket ids, KB citations, actions said to be done, \
+follow-up promises and the reply language. Don't re-check those; judge the rest.
+
 Session context the agent was given by the system (treat as ground truth, like a tool result):
 {session}
 
@@ -104,13 +115,15 @@ Handoff ticket (if escalated):
 """
 
 
-def simulate_employee(client, settings: Settings, scenario: dict, transcript: list[str]) -> str:
+def simulate_employee(client, settings: Settings, scenario: dict, transcript: list[str], spend: dict | None = None) -> str:
     response = client.messages.create(
         model=settings.simulator_model, max_tokens=4000,  # the model thinks first; 400 ran out before any text
         system=SIMULATOR_PROMPT.format(opening=scenario["opening"], facts=scenario["facts"], end=END),
         messages=[{"role": "user", "content": "Conversation so far:\n" + "\n".join(transcript) +
                                                "\n\nWrite your next message as the employee."}],
     )
+    if spend is not None:
+        spend["simulator"] = spend.get("simulator", 0.0) + call_cost(settings.simulator_model, response.usage)
     text = "".join(b.text for b in response.content if b.type == "text").strip()
     if not text:  # an empty reply used to read as "the employee left", which ended conversations early
         raise RuntimeError(f"simulated employee wrote no text (stop_reason {response.stop_reason})")
@@ -126,6 +139,7 @@ def run_conversation(world: World, scenario: dict, client, max_turns: int) -> di
     message = scenario["opening"]
     started = time.time()
     said_goodbye = False
+    spend: dict = {}
     for _ in range(max_turns):
         transcript.append(f"EMPLOYEE: {message}")
         result = agent.respond(message)
@@ -135,7 +149,7 @@ def run_conversation(world: World, scenario: dict, client, max_turns: int) -> di
         replies.append(result.reply)
         if agent.case.status != "open" and "?" not in result.reply[-200:]:
             break
-        message = simulate_employee(client, settings, scenario, transcript)
+        message = simulate_employee(client, settings, scenario, transcript, spend)
         if END in message or not message:
             if agent.case.status == "open" and not said_goodbye:
                 said_goodbye = True
@@ -146,7 +160,8 @@ def run_conversation(world: World, scenario: dict, client, max_turns: int) -> di
     if agent.case.ticket_id:
         handoff = json.loads((Path(__file__).parent.parent / "var" / "tickets" / f"{agent.case.ticket_id}.json").read_text())
     return {"agent": agent, "transcript": transcript, "replies": replies, "events": events, "handoff": handoff,
-            "seconds": round(time.time() - started, 1), "usage": agent.usage}
+            "seconds": round(time.time() - started, 1), "usage": agent.usage,
+            "simulator_cost_usd": round(spend.get("simulator", 0.0), 4)}
 
 
 def check(scenario: dict, run: dict) -> list[str]:
@@ -183,7 +198,8 @@ def check(scenario: dict, run: dict) -> list[str]:
     return failures
 
 
-def judge(client, settings: Settings, scenario: dict, run: dict) -> dict:
+def judge(client, settings: Settings, scenario: dict, run: dict) -> tuple[dict, dict]:
+    """The verdict, and what it cost (USD and output tokens, which include the judge's thinking)."""
     tools = [f"{e['name']}({json.dumps(e['input'], ensure_ascii=False)}) -> "
              f"{json.dumps(e['result'], ensure_ascii=False, default=str)[:1500]}"
              for e in run["events"] if e["type"] == "tool_call"]
@@ -194,24 +210,35 @@ def judge(client, settings: Settings, scenario: dict, run: dict) -> dict:
                                  handoff=json.dumps(run["handoff"], ensure_ascii=False)[:6000] if run["handoff"] else "none")
     response = client.messages.parse(model=settings.judge_model, max_tokens=4000,
                                      messages=[{"role": "user", "content": prompt}], output_format=Judgement)
-    return response.parsed_output.model_dump()
+    return response.parsed_output.model_dump(), {"cost_usd": round(call_cost(settings.judge_model, response.usage), 4),
+                                                 "output_tokens": response.usage.output_tokens}
 
 
-def run_one(world, client, scenario, use_judge, max_turns) -> dict:
+JUDGE_MODES = ("code-passed", "all", "off")
+
+
+def run_one(world, client, scenario, judge_mode, max_turns) -> dict:
     settings = Settings()
     try:
         run = run_conversation(world, scenario, client, max_turns)
     except Exception as exc:  # an API error fails the scenario but not the whole suite
         return {"id": scenario["id"], "passed": False, "failures": [f"crashed: {type(exc).__name__}: {exc}"]}
     failures = check(scenario, run)
-    verdict = judge(client, settings, scenario, run) if use_judge else None
+    findings = rules.check(run["events"], context=run["agent"]._session_note)
+    failures += [f"rule {f.rule}: {f.quote}" for f in findings if f.hard]
+    use_judge = judge_mode == "all" or (judge_mode == "code-passed" and not failures)
+    verdict, judge_spend = judge(client, settings, scenario, run) if use_judge else (None, {})
     if verdict and not verdict["grounded"]:
         failures.append("judge: ungrounded claims " + "; ".join(verdict["unsupported_claims"])[:300])
     return {"id": scenario["id"], "passed": not failures, "failures": failures, "outcome": run["agent"].case.status,
             "ticket": run["handoff"]["ticket_id"] if run["handoff"] else None,
             "team": run["handoff"]["assignment_group"] if run["handoff"] else None,
             "turns": run["agent"].case.turns, "seconds": run["seconds"], "cost_usd": run["usage"]["cost_usd"],
-            "tool_calls": run["usage"]["tool_calls"], "judge": verdict, "transcript": run["transcript"]}
+            "checker_cost_usd": run["usage"]["checker_cost_usd"], "simulator_cost_usd": run["simulator_cost_usd"],
+            "judge_cost_usd": judge_spend.get("cost_usd", 0.0), "judge_output_tokens": judge_spend.get("output_tokens", 0),
+            "checker": {k: run["usage"][k] for k in ("checker_calls", "checker_flagged", "checker_errors")},
+            "tool_calls": run["usage"]["tool_calls"], "rules": rules.as_dicts(findings), "judge": verdict,
+            "transcript": run["transcript"]}
 
 
 def _git(*args: str) -> str:
@@ -225,13 +252,16 @@ def _hash(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:12]
 
 
-def run_metadata(repeats: int, use_judge: bool, only: list[str] | None, file: str = "scenarios.yaml") -> dict:
+def run_metadata(repeats: int, use_judge: bool, only: list[str] | None, file: str = "scenarios.yaml",
+                 judge_mode: str = "code-passed") -> dict:
     """What produced this run. `dirty` counts tracked files only, so a stray untracked note doesn't mark it."""
     s = Settings()
     return {"commit": _git("rev-parse", "--short", "HEAD") or "unknown",
             "dirty": bool(_git("status", "--porcelain", "--untracked-files=no")),
             "agent_model": s.agent_model, "agent_effort": s.agent_effort, "simulator_model": s.simulator_model,
-            "judge_model": s.judge_model if use_judge else None, "fallbacks": s.use_fallbacks,
+            "judge_model": s.judge_model if use_judge else None, "judge_mode": judge_mode if use_judge else "off",
+            "checker_model": s.checker_model or None,
+            "fallbacks": s.use_fallbacks,
             "prompt_hash": _hash(SYSTEM_PROMPT), "scenarios_file": file, "scenarios_hash": _hash((HERE / file).read_text()),
             "repeats": repeats, "only": only or None}
 
@@ -249,16 +279,30 @@ def write_report(results: list[dict], repeats: int, meta: dict) -> Path:
     pass_runs = sum(r["passed"] for r in results)
     judged = [r["judge"] for r in results if r.get("judge")]
     avg = lambda key: round(sum(j[key] for j in judged if j.get(key)) / max(1, sum(1 for j in judged if j.get(key))), 2)
+    mean = lambda key: sum(r.get(key) or 0 for r in results) / len(results)  # noqa: E731
+    total_check = lambda key: sum((r.get("checker") or {}).get(key, 0) for r in results)  # noqa: E731
+
+    def rule_line() -> str:
+        hits: dict[str, set] = {}
+        for i, r in enumerate(results):
+            for f in r.get("rules") or []:
+                hits.setdefault(("" if f["hard"] else "soft ") + f["rule"], set()).add(i)
+        return ", ".join(f"{name} {len(runs)} runs" for name, runs in sorted(hits.items())) or "no findings"
     lines = [f"# Eval report {stamp}", "",
              f"- Run: commit {meta['commit']}{' with uncommitted changes' if meta['dirty'] else ''}; agent "
              f"{meta['agent_model']} ({meta['agent_effort']} effort); simulator {meta['simulator_model']}; judge "
-             f"{meta['judge_model'] or 'off'}; prompt {meta['prompt_hash']}; scenarios {meta.get('scenarios_file', 'scenarios.yaml')} {meta['scenarios_hash']}",
+             f"{meta['judge_model'] or 'off'}; checker {meta.get('checker_model') or 'off'}; prompt {meta['prompt_hash']}; scenarios {meta.get('scenarios_file', 'scenarios.yaml')} {meta['scenarios_hash']}",
              f"- Scenarios: {len(by_id)}, runs per scenario: {repeats}",
              f"- Runs passed: {pass_runs}/{len(results)}",
              f"- pass^{repeats} (every run of a scenario passed): {pass_all}/{len(by_id)}",
-             f"- Mean cost per conversation: ${round(sum(r.get('cost_usd', 0) for r in results) / len(results), 3)}; "
-             f"mean wall time {round(sum(r.get('seconds', 0) for r in results) / len(results), 1)} s; "
-             f"mean employee turns {round(sum(r.get('turns', 0) for r in results) / len(results), 1)}"]
+             f"- Mean per conversation: {round(mean('seconds'), 1)} s wall time, {round(mean('turns'), 1)} employee turns",
+             f"- Mean cost per conversation: agent ${mean('cost_usd'):.3f} (of which checker ${mean('checker_cost_usd'):.3f}), "
+             f"simulated employee ${mean('simulator_cost_usd'):.3f}, judge ${mean('judge_cost_usd'):.3f} "
+             f"({round(mean('judge_output_tokens'))} output tokens); total ${mean('cost_usd') + mean('simulator_cost_usd') + mean('judge_cost_usd'):.3f}",
+             f"- Checker: flagged {total_check('checker_flagged')} of {total_check('checker_calls')} first drafts; "
+             f"{total_check('checker_errors')} errors (an error lets the draft through)",
+             f"- Rules (code, every run): {rule_line()}",
+             f"- Judged {len(judged)} of {len(results)} runs (mode {meta.get('judge_mode', 'all')})"]
     if judged:
         lines.append(f"- Judge means (1-5): diagnosis {avg('diagnosis_quality')}, confidence honesty "
                      f"{avg('honesty_about_confidence')}, handoff {avg('handoff_quality')}, employee experience "
@@ -285,7 +329,8 @@ def main() -> None:
     parser.add_argument("--only", nargs="*", help="scenario ids to run")
     parser.add_argument("--file", default="scenarios.yaml", help="scenario file in evals/, e.g. heldout.yaml")
     parser.add_argument("--repeats", type=int, default=1)
-    parser.add_argument("--no-judge", action="store_true")
+    parser.add_argument("--judge", choices=JUDGE_MODES, default="code-passed",
+                        help="which runs the judge model scores: code-passed (default), all, or off")
     parser.add_argument("--max-turns", type=int, default=7)
     parser.add_argument("--workers", type=int, default=4)
     args = parser.parse_args()
@@ -293,11 +338,11 @@ def main() -> None:
     scenarios = yaml.safe_load((HERE / args.file).read_text())
     if args.only:
         scenarios = [s for s in scenarios if s["id"] in args.only]
-    meta = run_metadata(args.repeats, not args.no_judge, args.only, args.file)  # read before the run, so edits mid-run don't count
+    meta = run_metadata(args.repeats, args.judge != "off", args.only, args.file, args.judge)  # read before the run, so edits mid-run don't count
     world, client = World.load(), anthropic.Anthropic()
     jobs = [s for s in scenarios for _ in range(args.repeats)]
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        results = list(pool.map(lambda s: run_one(world, client, s, not args.no_judge, args.max_turns), jobs))
+        results = list(pool.map(lambda s: run_one(world, client, s, args.judge, args.max_turns), jobs))
     for r in results:
         print(f"{'PASS' if r['passed'] else 'FAIL'}  {r['id']:<34} {r.get('outcome', '-'):<16} {'; '.join(r['failures'])}")
     print(f"\nReport: {write_report(results, args.repeats, meta)}")

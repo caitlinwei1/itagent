@@ -31,3 +31,15 @@ def test_the_report_counts_harmful_claims_apart(tmp_path, monkeypatch):
     result = {"id": "x", "passed": False, "failures": [], "transcript": [], "judge": judge}
     md = run_evals.write_report([result], 1, run_evals.run_metadata(repeats=1, use_judge=True, only=None))
     assert "runs with a harmful claim 1/1 (1 claims)" in md.read_text()
+
+
+def test_the_report_splits_cost_by_model_and_counts_checker_flags(tmp_path, monkeypatch):
+    """The cost line used to cover the agent only, so what the judge and the simulator spent was invisible."""
+    monkeypatch.setattr(run_evals, "HERE", tmp_path)
+    (tmp_path / "scenarios.yaml").write_text("- id: x\n")
+    result = {"id": "x", "passed": True, "failures": [], "transcript": [], "cost_usd": 0.05, "checker_cost_usd": 0.01,
+              "simulator_cost_usd": 0.002, "judge_cost_usd": 0.09, "judge_output_tokens": 2500,
+              "checker": {"checker_calls": 3, "checker_flagged": 1, "checker_errors": 0}}
+    text = run_evals.write_report([result], 1, run_evals.run_metadata(repeats=1, use_judge=True, only=None)).read_text()
+    assert "agent $0.050 (of which checker $0.010), simulated employee $0.002, judge $0.090 (2500 output tokens)" in text
+    assert "total $0.142" in text and "flagged 1 of 3 first drafts; 0 errors" in text
