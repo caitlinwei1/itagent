@@ -26,7 +26,7 @@
                 "software": {"GlobalProtect": "6.2.3", "Chrome": "141", "Edge": "141"}}],
    "access": ["salesforce-standard", "tableau-viewer", "jira"],
    "diagnostics": {"sign_in": [{"time": "2026-10-22T13:00:00Z", "event": "sign_in", "result": "success", "client": "Chrome on LT-1420"}],
-                   "app_performance": [{"app": "Salesforce", "median_page_load_s_last_24h": 38.0, "median_page_load_s_usual": 2.1, "network": "Chicago office LAN (via office proxy)"}]}},
+                   "app_performance": [{"app": "Salesforce", "as_of": "2026-10-21T23:00:00Z", "median_page_load_s_last_24h": 38.0, "median_page_load_s_usual": 2.1, "network": "Chicago office LAN (via office proxy)"}]}},
 
   {"user_id": "u-priya", "name": "Priya Nair", "email": "priya.nair@acme.example", "department": "Marketing", "title": "Content Marketing Manager",
    "location": "Remote (Austin)", "manager_id": "u-tom", "employment_status": "active", "start_date": "2021-06-14", "phone_last4": "2287",

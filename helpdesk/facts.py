@@ -17,9 +17,10 @@ def local_zone(location: str) -> ZoneInfo:
 
 
 def local_clock(iso: str, location: str) -> str:
-    """A UTC record time on the employee's wall clock, e.g. 'Thu 9:40 AM EDT'."""
+    """A UTC record time on the employee's wall clock, with its own date (it can differ from the UTC date),
+    e.g. 'Thu Oct 22 9:40 AM EDT'."""
     local = datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(local_zone(location))
-    return local.strftime("%a %-I:%M %p %Z")
+    return local.strftime("%a %b %-d %-I:%M %p %Z")
 
 
 def has_access(user: dict, resource_id: str) -> bool:
