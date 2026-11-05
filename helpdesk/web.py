@@ -20,12 +20,19 @@ from .world import World
 app = FastAPI(title="Acme IT Support Agent")
 WORLD = World.load()
 SESSIONS: dict[str, HelpdeskAgent] = {}
+CHECKER_MODEL = Settings().checker_model  # what "verify on" uses; CHECKER_MODEL= (empty) in .env means it can't be on
 STATIC = Path(__file__).parent / "static"
 
 
 class NewSession(BaseModel):
     user_id: str
     faults: str = ""
+    verify: bool = True  # the reply checker (checker.py); can be switched during a conversation with /api/verify
+
+
+class VerifyIn(BaseModel):
+    session_id: str
+    on: bool
 
 
 class ChatIn(BaseModel):
@@ -50,10 +57,22 @@ def new_session(body: NewSession) -> dict:
         raise HTTPException(404, "unknown user")
     settings = Settings()
     settings.faults = body.faults
+    settings.checker_model = CHECKER_MODEL if body.verify else ""
     session_id = uuid.uuid4().hex
     SESSIONS[session_id] = HelpdeskAgent(WORLD, body.user_id, settings)
     agent = SESSIONS[session_id]
-    return {"session_id": session_id, "case_id": agent.case.case_id, "user": agent.user["name"]}
+    return {"session_id": session_id, "case_id": agent.case.case_id, "user": agent.user["name"],
+            "verify": bool(settings.checker_model), "verify_available": bool(CHECKER_MODEL)}
+
+
+@app.post("/api/verify")
+def set_verify(body: VerifyIn) -> dict:
+    """Turn the reply checker on or off for this conversation; it applies from the next reply."""
+    agent = SESSIONS.get(body.session_id)
+    if agent is None:
+        raise HTTPException(404, "unknown session")
+    agent.settings.checker_model = CHECKER_MODEL if body.on else ""
+    return {"verify": bool(agent.settings.checker_model)}
 
 
 @app.post("/api/chat")

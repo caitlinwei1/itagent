@@ -83,6 +83,8 @@
     <option value="search_kb:flaky">KB search flaky (retry works)</option>
     <option value="get_account_diagnostics:error">diagnostics down</option>
   </select></label>
+  <label title="A second model checks each reply against the records before it is sent (adds about 1-2 s per reply)">
+    <input type="checkbox" id="verify" checked> Verify replies</label>
   <button class="ghost" id="reset">New conversation</button>
 </header>
 <main>
@@ -169,8 +171,9 @@ async function showHandoff(id) {
 async function newSession() {
   const user_id = $("#user").value;
   const r = await fetch("/api/session", {method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({user_id, faults: $("#faults").value})});
+    body: JSON.stringify({user_id, faults: $("#faults").value, verify: $("#verify").checked})});
   const s = await r.json(); session = s.session_id;
+  $("#verify").checked = s.verify; $("#verify").disabled = !s.verify_available;
   $("#messages").innerHTML = ""; $("#trace").innerHTML = ""; $("#case").innerHTML = "";
   $("#handoff").innerHTML = "<p style='color:var(--muted)'>No escalation yet.</p>"; $("#usage").textContent = "-";
   addMsg("status", `Signed in as ${esc(s.user)} · case ${s.case_id}${$("#faults").value ? " · fault: " + $("#faults").value : ""}`);
@@ -254,6 +257,13 @@ document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
 });
 $("#form").onsubmit = e => { e.preventDefault(); send($("#input").value); };
 $("#input").onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send($("#input").value); } };
+$("#verify").onchange = async () => {
+  const r = await fetch("/api/verify", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({session_id: session, on: $("#verify").checked})});
+  const v = await r.json(); $("#verify").checked = v.verify;
+  addMsg("status", v.verify ? "Reply verification on: each reply is checked against the records before it is sent."
+                            : "Reply verification off: replies are sent without the second check.");
+};
 $("#reset").onclick = newSession; $("#user").onchange = newSession; $("#faults").onchange = newSession;
 fetch("/api/users").then(r => r.json()).then(us => {
   $("#user").innerHTML = us.map(u => `<option value="${u.user_id}">${u.name} · ${u.department}, ${u.location}</option>`).join("");
