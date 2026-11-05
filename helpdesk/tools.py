@@ -234,7 +234,7 @@ def check_system_status(ctx: ToolContext, a: CheckStatus) -> dict:
         changes = [c for c in ctx.world.changes if c["service"] == name or
                    (name in ("Jenkins", "Tableau") and c["service"] == "Snowflake")]
         record.append({"service": name, "owner_team": svc["owner_team"], "health": svc["health"],
-                       "open_incidents": incidents, "changes_last_14_days": changes})
+                       "open_incidents": incidents, "changes": changes})
         lines.append(f"{name} (owner: {svc['owner_team']}): health {svc['health']}.")
         for i in incidents:
             covered = "covers" if facts.incident_covers(i, user) else "does not cover"
@@ -593,7 +593,7 @@ def escalate_to_human(ctx: ToolContext, a: Escalate) -> dict:
                                                   f"priority {prio}, target first response {RESPONSE_TARGETS[prio]}."})
     return {"ticket_id": ticket_id, "priority": prio, "assignment_group": team,
             "target_first_response": RESPONSE_TARGETS[prio],
-            "next": "Tell the employee the ticket number, who will contact them and when, and any workaround. If "
+            "next": "Tell the employee the ticket number, the team, its target first response time, and any workaround. If "
                     "something the specialist will need is still missing, ask for it now and add it with "
                     "add_ticket_note."}
 
@@ -631,7 +631,7 @@ TOOLS: list[Tool] = [
     Tool("get_kb_article", "Read a full knowledge base article. You must read an article before giving its steps "
          "or citing it.", GetArticle, get_kb_article, "read"),
     Tool("check_system_status", "Service health, open incidents (with whether they cover the employee's location, "
-         "workaround and ETA) and changes in the last 14 days, for one or more systems. Check this before "
+         "workaround and ETA) and changes to them, each with its date, for one or more systems. Check this before "
          "troubleshooting an individual's setup.", CheckStatus, check_system_status, "read"),
     Tool("get_my_profile", "The signed-in employee's directory record: department, title, location, manager, "
          "account status, devices and access. Only the signed-in employee can be looked up.", NoArgs, get_my_profile, "read"),

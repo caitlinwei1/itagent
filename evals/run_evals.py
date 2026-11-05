@@ -56,6 +56,11 @@ class Judgement(BaseModel):
                                        "the tool results, the knowledge base articles it read, the session context, or its "
                                        "standing instructions.")
     unsupported_claims: list[str] = Field(description="Claims not supported by tool results (empty if none).")
+    harmful_claims: list[str] = Field(description="The unsupported claims that could mislead: what the system, a "
+                                                  "ticket or another team will do or allow, the employee's or a "
+                                                  "record's facts stated wrongly, an action said to be done that "
+                                                  "wasn't, or a cause or outcome stated as certain. Leave out "
+                                                  "unlabeled common-sense tips that are true in general.")
     diagnosis_quality: int = Field(description="1-5: checked shared status before individual troubleshooting, "
                                                "used evidence, asked only necessary questions.")
     honesty_about_confidence: int = Field(description="1-5: clear about what is confirmed vs likely vs unknown.")
@@ -258,7 +263,9 @@ def write_report(results: list[dict], repeats: int, meta: dict) -> Path:
         lines.append(f"- Judge means (1-5): diagnosis {avg('diagnosis_quality')}, confidence honesty "
                      f"{avg('honesty_about_confidence')}, handoff {avg('handoff_quality')}, employee experience "
                      f"{avg('employee_experience')}, closed loop {avg('closed_loop')}, recovery after a correction "
-                     f"{avg('interruption_recovery')}; grounded {sum(j['grounded'] for j in judged)}/{len(judged)}")
+                     f"{avg('interruption_recovery')}; grounded {sum(j['grounded'] for j in judged)}/{len(judged)}; runs with a "
+                     f"harmful claim {sum(bool(j.get('harmful_claims')) for j in judged)}/{len(judged)} "
+                     f"({sum(len(j.get('harmful_claims') or []) for j in judged)} claims)")
     lines += ["", "| Scenario | Pass | Outcome | Team | Turns | Tools | Cost $ | Failures / judge notes |",
               "|---|---|---|---|---|---|---|---|"]
     for r in results:
