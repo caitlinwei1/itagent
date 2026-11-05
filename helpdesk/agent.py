@@ -2,8 +2,9 @@
 
 Per message: the employee's text and the current case record go into the conversation, then Claude is called
 in a loop. Each round it may call tools (executed by code, writes gated by policy) or reply. Before a reply is
-shown, code checks it (cited KB articles were actually read, ticket numbers exist) and sends it back once for a
-fix if not. Budgets cap model and tool calls per message so a confused run cannot spin.
+shown, code checks it (cited KB articles were actually read, ticket numbers exist), then a second model looks for
+claims the evidence doesn't support (checker.py). Either sends it back for a fix, at most twice a turn; code checks
+every rewrite too, since a fix can bring in a new citation. Budgets cap model and tool calls per message so a confused run cannot spin.
 """
 
 import json
@@ -15,11 +16,12 @@ from typing import Callable
 
 import anthropic
 
+from . import checker
 from .case import CaseFrame
-from .config import PRICES, Settings
+from .config import Settings, call_cost
 from .policy import PolicyEngine
 from .prompts import GUARD_NOTE, SYSTEM_PROMPT, case_block, session_block
-from .tools import TOOL_SPECS, ToolContext, execute, parse_faults, step_label, step_outcome
+from .tools import TOOL_SPECS, TOOLS, ToolContext, execute, parse_faults, step_label, step_outcome
 from .trace import Tracer
 from .world import World
 
@@ -55,7 +57,9 @@ class HelpdeskAgent:
         self.messages: list[dict] = []
         self.on_event = on_event or (lambda e: None)
         self.usage = {"input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0,
-                      "cache_creation_input_tokens": 0, "model_calls": 0, "tool_calls": 0, "cost_usd": 0.0}
+                      "cache_creation_input_tokens": 0, "model_calls": 0, "tool_calls": 0, "cost_usd": 0.0,
+                      "checker_calls": 0, "checker_flagged": 0, "checker_errors": 0, "checker_cost_usd": 0.0}
+        self._cost = 0.0
         manager = self.world.users.get(self.user.get("manager_id") or "", {}).get("name")
         self._session_note = session_block(self.user, self.settings.now, manager)
 
@@ -102,7 +106,7 @@ class HelpdeskAgent:
 
     def _run_loop(self, emit) -> str | None:
         tool_calls = 0
-        corrected = False
+        rewrites, claims_checked = 0, False
         seen_calls: dict[str, int] = {}
         for round_no in range(self.settings.max_model_calls_per_turn):
             last_round = round_no == self.settings.max_model_calls_per_turn - 1
@@ -118,9 +122,12 @@ class HelpdeskAgent:
             tool_uses = [b for b in response.content if b.type == "tool_use"]
             if not tool_uses:
                 reply = "".join(b.text for b in response.content if b.type == "text").strip()
-                problems = self._check_reply(reply)
-                if problems and not corrected:
-                    corrected = True
+                problems = self._check_reply(reply)  # exact checks run on every draft, rewrites included
+                if not problems and not claims_checked:  # the second model sees one clean draft per turn
+                    claims_checked = True
+                    problems = self._check_claims(reply, emit)
+                if problems and rewrites < 2:
+                    rewrites += 1
                     emit({"type": "guard", "problems": problems})
                     emit({"type": "reply_reset"})  # the UI drops the draft it streamed
                     self.messages.append({"role": "user", "content": GUARD_NOTE.format(problems=" ".join(problems))})
@@ -189,15 +196,16 @@ class HelpdeskAgent:
               "cache_read_input_tokens": response.usage.cache_read_input_tokens or 0})
         return response
 
-    def _account(self, response) -> None:
+    def _account(self, response, model: str | None = None) -> float:
+        """Adds one call's tokens and cost to the conversation's usage; returns the call's cost."""
         u = response.usage
         self.usage["model_calls"] += 1
         for key in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"):
             self.usage[key] += getattr(u, key, 0) or 0
-        price_in, price_out, price_cache = PRICES.get(self.settings.agent_model, (0, 0, 0))
-        self.usage["cost_usd"] = round(
-            (self.usage["input_tokens"] * price_in + self.usage["cache_creation_input_tokens"] * price_in * 1.25 +
-             self.usage["cache_read_input_tokens"] * price_cache + self.usage["output_tokens"] * price_out) / 1e6, 4)
+        cost = call_cost(model or self.settings.agent_model, u)
+        self._cost += cost
+        self.usage["cost_usd"] = round(self._cost, 4)
+        return cost
 
     # ---- context and checks -------------------------------------------------------------------------
 
@@ -219,6 +227,45 @@ class HelpdeskAgent:
     def _record(self, result: dict) -> dict | None:
         """The raw record kept with a text result's evidence (for the UI's step label)."""
         return next((e.record for e in self.case.evidence if e.id == result.get("evidence_id")), None)
+
+    def _tool_results(self) -> list[str]:
+        """Every tool call in this conversation with its result, as the agent saw them."""
+        calls = {b.id: f"{b.name}({json.dumps(b.input, ensure_ascii=False)})" for m in self.messages
+                 if m["role"] == "assistant" and isinstance(m["content"], list)
+                 for b in m["content"] if getattr(b, "type", None) == "tool_use"}
+        return [f"{calls.get(r['tool_use_id'], 'tool')} -> {r['content']}" for m in self.messages
+                if m["role"] == "user" and isinstance(m["content"], list)
+                for r in m["content"] if isinstance(r, dict) and r.get("type") == "tool_result"]
+
+    def _capabilities(self) -> list[str]:
+        """What the agent can do, as it was told: its tools, and each action with the policy's decision."""
+        return ([f"{t.name}: {t.description}" for t in TOOLS] +
+                [f"perform_action {name}: {rule['decision']}. {rule['description']}"
+                 for name, rule in self.ctx.policy.actions.items()])
+
+    def _check_claims(self, reply: str, emit) -> list[str]:
+        """A second model's flags for claims the evidence doesn't support; none when it is off or fails."""
+        if not self.settings.checker_model:
+            return []
+        t0 = time.time()
+        try:
+            flags, response = checker.find_harmful_claims(
+                self.client, self.settings.checker_model, reply=reply, rules=SYSTEM_PROMPT,
+                session=self._session_note, employee_messages=self.case.employee_messages,
+                tool_results=self._tool_results(), capabilities=self._capabilities())
+        except Exception as exc:  # a checker outage must not block the reply; it is counted and traced
+            self.usage["checker_errors"] += 1
+            emit({"type": "claim_check", "error": f"{type(exc).__name__}: {exc}"})
+            return []
+        cost = self._account(response, self.settings.checker_model)
+        self.usage["checker_calls"] += 1
+        self.usage["checker_flagged"] += bool(flags)
+        self.usage["checker_cost_usd"] = round(self.usage["checker_cost_usd"] + cost, 4)
+        emit({"type": "claim_check", "flags": flags, "ms": int((time.time() - t0) * 1000)})
+        if not flags:
+            return []
+        return ["These sentences aren't supported by your tool results or your instructions. Remove them, or say "
+                "plainly that they are your own suggestion: " + " | ".join(flags)]
 
     def _check_reply(self, reply: str) -> list[str]:
         problems = []

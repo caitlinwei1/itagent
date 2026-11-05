@@ -32,12 +32,22 @@ PRICES = {
 }
 
 
+def call_cost(model: str, usage) -> float:
+    """USD for one API call from its usage block (cache writes cost 1.25x input)."""
+    price_in, price_out, price_cache = PRICES.get(model, (0, 0, 0))
+    n = lambda key: getattr(usage, key, 0) or 0  # noqa: E731
+    return (n("input_tokens") * price_in + n("cache_creation_input_tokens") * price_in * 1.25 +
+            n("cache_read_input_tokens") * price_cache + n("output_tokens") * price_out) / 1e6
+
+
 @dataclass
 class Settings:
     agent_model: str = field(default_factory=lambda: os.getenv("AGENT_MODEL", "claude-sonnet-5-5"))
     agent_effort: str = field(default_factory=lambda: os.getenv("AGENT_EFFORT", "medium"))
     simulator_model: str = field(default_factory=lambda: os.getenv("SIMULATOR_MODEL", "claude-haiku-5-5"))
     judge_model: str = field(default_factory=lambda: os.getenv("JUDGE_MODEL", "claude-opus-5-5"))
+    # Checks each first draft for claims the evidence doesn't support (checker.py); empty turns it off.
+    checker_model: str = field(default_factory=lambda: os.getenv("CHECKER_MODEL", "claude-haiku-5-5"))
     # Per employee message: model calls and tool calls the agent may make before it must wrap up.
     max_model_calls_per_turn: int = int(os.getenv("MAX_MODEL_CALLS_PER_TURN", "10"))
     max_tool_calls_per_turn: int = int(os.getenv("MAX_TOOL_CALLS_PER_TURN", "14"))
