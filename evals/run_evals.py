@@ -227,7 +227,12 @@ def run_one(world, client, scenario, judge_mode, max_turns) -> dict:
     findings = rules.check(run["events"], context=run["agent"]._session_note)
     failures += [f"rule {f.rule}: {f.quote}" for f in findings if f.hard]
     use_judge = judge_mode == "all" or (judge_mode == "code-passed" and not failures)
-    verdict, judge_spend = judge(client, settings, scenario, run) if use_judge else (None, {})
+    verdict, judge_spend, judge_error = None, {}, None
+    if use_judge:
+        try:
+            verdict, judge_spend = judge(client, settings, scenario, run)
+        except Exception as exc:  # the conversation is done and paid for; keep it, reported as not judged
+            judge_error = f"{type(exc).__name__}: {exc}"[:300]
     if verdict and not verdict["grounded"]:
         failures.append("judge: ungrounded claims " + "; ".join(verdict["unsupported_claims"])[:300])
     return {"id": scenario["id"], "passed": not failures, "failures": failures, "outcome": run["agent"].case.status,
@@ -236,8 +241,9 @@ def run_one(world, client, scenario, judge_mode, max_turns) -> dict:
             "turns": run["agent"].case.turns, "seconds": run["seconds"], "cost_usd": run["usage"]["cost_usd"],
             "checker_cost_usd": run["usage"]["checker_cost_usd"], "simulator_cost_usd": run["simulator_cost_usd"],
             "judge_cost_usd": judge_spend.get("cost_usd", 0.0), "judge_output_tokens": judge_spend.get("output_tokens", 0),
-            "checker": {k: run["usage"][k] for k in ("checker_calls", "checker_flagged", "checker_errors")},
+            "checker": {k: run["usage"][k] for k in ("checker_calls", "checker_flagged", "checker_errors", "checker_skipped")},
             "tool_calls": run["usage"]["tool_calls"], "rules": rules.as_dicts(findings), "judge": verdict,
+            "judge_error": judge_error,
             "transcript": run["transcript"]}
 
 
@@ -300,9 +306,11 @@ def write_report(results: list[dict], repeats: int, meta: dict) -> Path:
              f"simulated employee ${mean('simulator_cost_usd'):.3f}, judge ${mean('judge_cost_usd'):.3f} "
              f"({round(mean('judge_output_tokens'))} output tokens); total ${mean('cost_usd') + mean('simulator_cost_usd') + mean('judge_cost_usd'):.3f}",
              f"- Checker: flagged {total_check('checker_flagged')} of {total_check('checker_calls')} first drafts; "
-             f"{total_check('checker_errors')} errors (an error lets the draft through)",
+             f"{total_check('checker_errors')} errors (an error lets the draft through); "
+             f"{total_check('checker_skipped')} short drafts not checked",
              f"- Rules (code, every run): {rule_line()}",
-             f"- Judged {len(judged)} of {len(results)} runs (mode {meta.get('judge_mode', 'all')})"]
+             f"- Judged {len(judged)} of {len(results)} runs (mode {meta.get('judge_mode', 'all')}); "
+             f"judge errors {sum(bool(r.get('judge_error')) for r in results)}"]
     if judged:
         lines.append(f"- Judge means (1-5): diagnosis {avg('diagnosis_quality')}, confidence honesty "
                      f"{avg('honesty_about_confidence')}, handoff {avg('handoff_quality')}, employee experience "

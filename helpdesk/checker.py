@@ -5,6 +5,8 @@ saying what a ticket, a team or the helpdesk will do, or one restating what the 
 against the same evidence the agent had. It only flags: the agent rewrites once (agent.py).
 """
 
+import re
+
 from pydantic import BaseModel, Field
 
 CHECKER_PROMPT = """\
@@ -39,12 +41,27 @@ Reply to check:
 """
 
 
+class Verdict(BaseModel):
+    sentence: str = Field(description="The sentence, quoted.")
+    reason: str = Field(description="A few words on why it is or isn't supported.")
+    harmful: bool = Field(description="True only if it is one of the four kinds above and nothing supports it.")
+
+
 class Flags(BaseModel):
-    harmful: list[str] = Field(description="Each flagged sentence, quoted, with a few words on what is unsupported. "
-                                           "Empty if none.")
+    # Without thinking, the model weighs sentences in its answer and listed ones it judged fine; a plain list of
+    # flags then sent fine replies back. Each sentence it mentions now carries a verdict, and only harmful ones count.
+    verdicts: list[Verdict] = Field(description="The sentences you considered, each with its verdict. Empty if none.")
 
 
 TIMEOUT_S = 15  # a slow check must not hold a reply: on timeout the caller lets the draft through
+# Short replies ("Please type the code", "Are you on the office network?") almost never carry a harmful claim: in 72
+# held-out turns, skipping replies of 3 sentences or fewer skipped 22% of checks and missed 1 of 24 flagged drafts.
+SHORT_REPLY = 3
+_SENTENCE = re.compile(r"(?<=[.!?。！？])\s+|\n+")
+
+
+def worth_checking(reply: str) -> bool:
+    return len([s for s in _SENTENCE.split(reply) if s.strip()]) > SHORT_REPLY
 
 
 def find_harmful_claims(client, model: str, *, reply: str, rules: str, session: str, employee_messages: list[str],
@@ -54,6 +71,6 @@ def find_harmful_claims(client, model: str, *, reply: str, rules: str, session: 
                                    employee="\n".join(f"- {m}" for m in employee_messages),
                                    evidence="\n".join(tool_results) or "none")
     response = client.with_options(timeout=TIMEOUT_S, max_retries=1).messages.parse(
-        model=model, max_tokens=4000,  # the model thinks first; leave room for the answer
-        messages=[{"role": "user", "content": prompt}], output_format=Flags)
-    return response.parsed_output.harmful, response
+        model=model, max_tokens=4000, messages=[{"role": "user", "content": prompt}], output_format=Flags,
+        thinking={"type": "disabled"})  # same 4 of 4 planted claims caught, in 1.6 s instead of 2.8 s
+    return [f"{v.sentence}: {v.reason}" for v in response.parsed_output.verdicts if v.harmful], response

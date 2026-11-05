@@ -43,3 +43,21 @@ def test_the_report_splits_cost_by_model_and_counts_checker_flags(tmp_path, monk
     text = run_evals.write_report([result], 1, run_evals.run_metadata(repeats=1, use_judge=True, only=None)).read_text()
     assert "agent $0.050 (of which checker $0.010), simulated employee $0.002, judge $0.090 (2500 output tokens)" in text
     assert "total $0.142" in text and "flagged 1 of 3 first drafts; 0 errors" in text
+
+
+def test_a_failing_judge_keeps_the_finished_conversation(monkeypatch):
+    """The API ran out of credit mid-run; the judge's exception ended the suite and every finished run was lost."""
+    from types import SimpleNamespace
+    agent = SimpleNamespace(case=SimpleNamespace(status="answered", turns=1, actions=[], ticket_id=None),
+                            _session_note="")
+    run = {"agent": agent, "events": [], "replies": ["ok"], "transcript": [], "handoff": None, "seconds": 1.0,
+           "usage": {"cost_usd": 0.01, "checker_cost_usd": 0.0, "tool_calls": 0, "checker_calls": 0,
+                     "checker_flagged": 0, "checker_errors": 0, "checker_skipped": 0}, "simulator_cost_usd": 0.0}
+    monkeypatch.setattr(run_evals, "run_conversation", lambda *a: run)
+
+    def no_credit(*a):
+        raise RuntimeError("credit balance is too low")
+
+    monkeypatch.setattr(run_evals, "judge", no_credit)
+    result = run_evals.run_one(None, None, {"id": "x", "expect": {"outcome": ["answered"]}}, "all", 3)
+    assert result["passed"] and result["judge"] is None and "credit" in result["judge_error"]

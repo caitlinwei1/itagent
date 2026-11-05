@@ -58,7 +58,8 @@ class HelpdeskAgent:
         self.on_event = on_event or (lambda e: None)
         self.usage = {"input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0,
                       "cache_creation_input_tokens": 0, "model_calls": 0, "tool_calls": 0, "cost_usd": 0.0,
-                      "checker_calls": 0, "checker_flagged": 0, "checker_errors": 0, "checker_cost_usd": 0.0}
+                      "checker_calls": 0, "checker_flagged": 0, "checker_errors": 0, "checker_skipped": 0,
+                      "checker_cost_usd": 0.0}
         self._cost = 0.0
         manager = self.world.users.get(self.user.get("manager_id") or "", {}).get("name")
         self._session_note = session_block(self.user, self.settings.now, manager)
@@ -246,6 +247,9 @@ class HelpdeskAgent:
     def _check_claims(self, reply: str, emit) -> list[str]:
         """A second model's flags for claims the evidence doesn't support; none when it is off or fails."""
         if not self.settings.checker_model:
+            return []
+        if not checker.worth_checking(reply):
+            self.usage["checker_skipped"] += 1
             return []
         t0 = time.time()
         try:
