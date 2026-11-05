@@ -88,6 +88,9 @@ approved_software:
   Slack: "4.45"
   Chrome: "141"
 
+# Who approves in the manager's place for someone with no manager on record (the CEO).
+no_manager_approver: Identity & Access
+
 # Teams that escalations may be routed to.
 teams:
   - Identity & Access

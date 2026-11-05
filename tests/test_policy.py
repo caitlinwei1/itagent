@@ -151,3 +151,12 @@ def test_linking_to_an_incident_needs_the_records_and_the_employees_own_words(wo
     opening = ["Salesforce is slow here in the Chicago office", "yes"]
     assert link("u-david", opening, "here in the Chicago office").missing == ["employee_describes_incident"]
     assert link("u-david", office, "in the Chicago office", found_in_turn=None).missing == ["employee_describes_incident"]
+
+
+def test_someone_with_no_manager_has_a_named_approver(world):
+    """The CEO's manager-approval requests read "the employee's manager (manager)"; policy now names who approves."""
+    e, erin = engine(world), world.users["u-erin"]
+    d = e.evaluate("request_access_approval", erin, case("u-erin"), "tableau-creator")
+    assert d.decision == "allow" and d.approvers == ["Identity & Access (no manager on record)"]
+    jordan = e.evaluate("request_access_approval", world.users["u-jordan"], case("u-jordan"), "tableau-creator")
+    assert jordan.approvers == ["Mark Evans (manager)"]

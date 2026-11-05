@@ -56,6 +56,7 @@ class PolicyEngine:
         self.resources = policy["resources"]
         self.approved_software = policy["approved_software"]
         self.teams = policy["teams"]
+        self.no_manager_approver = policy["no_manager_approver"]
         self.users = users
         self.incidents = incidents
         self.fix_actions = frozenset(a for a, rule in self.actions.items() if rule.get("fix"))
@@ -86,9 +87,13 @@ class PolicyEngine:
             return not facts.software_state(user, self.approved_software, target or "")["current"]
         raise ValueError(f"unknown precondition {name}")
 
+    def _manager(self, user: dict, role: str = "manager") -> str:
+        """Who approves as the employee's manager: their manager, or policy's approver when there is none."""
+        manager = self.users.get(user.get("manager_id") or "")
+        return f"{manager['name']} ({role})" if manager else f"{self.no_manager_approver} (no manager on record)"
+
     def _approvers(self, resource: dict, user: dict) -> list[str]:
-        manager = self.users.get(user.get("manager_id") or "", {}).get("name", "the employee's manager")
-        approvers = [f"{manager} (manager)"]
+        approvers = [self._manager(user)]
         if resource["approval"] == "manager+data_owner":
             approvers.append(f"{resource.get('data_owner', 'the data owner')} (data owner)")
         return approvers
@@ -138,7 +143,7 @@ class PolicyEngine:
             return Decision("allow", f"File an approval request for {resource['name']}; usual turnaround "
                                      f"{resource.get('typical_turnaround', 'unknown')}.",
                             approvers=self._approvers(resource, user) if approval != "auto" else
-                            [f"{self.users.get(user.get('manager_id') or '', {}).get('name', 'the manager')} (manager, department not on the eligible list)"])
+                            [self._manager(user, "manager, department not on the eligible list")])
 
         # grant_access
         if not auto_ok:
