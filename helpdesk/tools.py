@@ -76,8 +76,8 @@ class PerformAction(BaseModel):
                                                         "own words agreeing to this change, copied from their message "
                                                         "after you asked about it.")
     situation_words: str | None = Field(None, description="For add_user_to_incident: the employee's own words, copied "
-                                                          "from their message, saying the incident's conditions apply "
-                                                          "to them (where they are or which network, and the symptom).")
+                                                          "from their answer after you found the incident, confirming "
+                                                          "its conditions apply to them (where they are or which network).")
 
 
 class HypothesisIn(BaseModel):
@@ -168,7 +168,7 @@ class ToolContext:
     def add_evidence(self, tool: str, args: dict, payload: Any, record: Any = None) -> str:
         evidence_id = f"E{len(self.case.evidence) + 1}"
         summary = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False, default=str)
-        self.case.evidence.append(Evidence(id=evidence_id, tool=tool, args=args, record=record,
+        self.case.evidence.append(Evidence(id=evidence_id, tool=tool, args=args, record=record, turn=self.case.turns,
                                            summary=summary[:400] + ("..." if len(summary) > 400 else "")))
         return evidence_id
 

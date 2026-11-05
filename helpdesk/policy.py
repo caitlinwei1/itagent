@@ -7,7 +7,7 @@ data/policy.yaml plus facts code already knows (who is signed in, whether identi
 from dataclasses import dataclass, field
 
 from . import facts
-from .case import CaseFrame, consent_given, said_by_employee
+from .case import CaseFrame, consent_given, said_by_employee, turn_found
 
 
 @dataclass
@@ -39,11 +39,12 @@ PRECONDITION_HINTS = {
     "incident_covers_employee": "The records don't put the employee in this incident's scope: its affected locations "
                                 "don't include where they work (or no open incident has that id). Troubleshoot their "
                                 "own case instead.",
-    "employee_describes_incident": "The records alone don't show this incident applies: the employee has to say it "
-                                   "in their own words (where they are or which network they're on, and the symptom, "
-                                   "as the incident's summary describes). If they haven't, ask one question about it. "
-                                   "Pass their words in situation_words. If what they say doesn't fit the incident, "
-                                   "don't add them: troubleshoot their own case.",
+    "employee_describes_incident": "The records alone don't show this incident applies: the employee has to confirm "
+                                   "its conditions (where they are or which network they're on, as its summary "
+                                   "describes) in a message sent after you found it with check_system_status. Ask "
+                                   "about those conditions without presenting the incident as their cause, and pass "
+                                   "their answer in situation_words. If it doesn't fit, don't add them: troubleshoot "
+                                   "their own case.",
     "employee_consent": "Ask the employee whether they want this exact change, naming it, and wait for their answer. "
                         "Then pass their own words in consent_words. A verification code is not agreement.",
 }
@@ -61,8 +62,9 @@ class PolicyEngine:
 
     def _precondition(self, name: str, user: dict, case: CaseFrame, target: str | None,
                       consent_words: str | None = None, situation_words: str | None = None) -> bool:
-        if name == "employee_describes_incident":
-            return said_by_employee(case, situation_words)
+        if name == "employee_describes_incident":  # their answer once the incident was known, not the opening
+            found = turn_found(case, "check_system_status", target or "")
+            return found is not None and said_by_employee(case, situation_words, after_turn=found)
         if name == "employee_consent":
             resource = self.resources.get(target or "", {})
             names = [target, resource.get("name"), (resource.get("name") or "").split(" ")[0]]

@@ -27,6 +27,7 @@ class Evidence(BaseModel):
     args: dict
     summary: str
     record: dict | None = None  # the raw records behind a text result (audit, handoff); the model sees the text
+    turn: int = 0  # the employee message (1-based) this lookup followed
 
 
 class Claim(BaseModel):
@@ -103,11 +104,16 @@ def _resolved(case: "CaseFrame", basis: dict) -> str | None:
     return None
 
 
-def said_by_employee(case: "CaseFrame", words: str | None) -> bool:
-    """`words` are words (not a code) copied from one of the employee's messages. Whether they mean what the agent
-    takes them to mean is the model's judgement; this checks that the employee said them."""
+def said_by_employee(case: "CaseFrame", words: str | None, after_turn: int = 0) -> bool:
+    """`words` are words (not a code) copied from an employee message sent after turn `after_turn`. Whether they
+    mean what the agent takes them to mean is the model's judgement; this checks that the employee said them, then."""
     w = _norm(words or "")
-    return any(ch.isalpha() for ch in w) and any(w in _norm(m) for m in case.employee_messages)
+    return any(ch.isalpha() for ch in w) and any(w in _norm(m) for m in case.employee_messages[after_turn:])
+
+
+def turn_found(case: "CaseFrame", tool: str, text: str) -> int | None:
+    """The turn in which `tool` first returned a result mentioning `text` (None if it never did)."""
+    return next((e.turn for e in case.evidence if e.tool == tool and text and text in f"{e.record} {e.summary}"), None)
 
 
 def consent_given(case: "CaseFrame", words: str | None, names: list[str]) -> bool:

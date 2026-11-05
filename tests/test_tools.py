@@ -263,7 +263,9 @@ def test_access_says_what_is_already_held_and_what_getting_the_rest_takes(ctx):
 
 def test_linking_to_an_incident_promises_no_updates(ctx):
     ctx.user = ctx.world.users["u-david"]  # Chicago, inside INC-2051's scope
-    ctx.case.employee_messages = ["Salesforce takes a minute per page here in the Chicago office"]
+    ctx.case.employee_messages = ["Salesforce takes a minute per page"]
+    execute(ctx, "check_system_status", {"systems": ["Salesforce"]})  # turn 1: the agent finds INC-2051
+    ctx.case.employee_messages.append("yes, I'm in the Chicago office on the office network")
     result, _ = execute(ctx, "perform_action", {"action": "add_user_to_incident", "target": "INC-2051",
                                                 "justification": "affected", "situation_words": "in the Chicago office"})
     assert result["record"]["executed"] and "Nothing here sends" in result["text"]

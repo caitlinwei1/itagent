@@ -1,6 +1,6 @@
 import pytest
 
-from helpdesk.case import CaseFrame
+from helpdesk.case import CaseFrame, Evidence
 from helpdesk.policy import PolicyEngine
 from helpdesk.world import World
 
@@ -133,9 +133,12 @@ def test_approval_needed(world):
 def test_linking_to_an_incident_needs_the_records_and_the_employees_own_words(world):
     e = engine(world)
 
-    def link(uid, said, words):
+    def link(uid, said, words, found_in_turn=1):
         c = case(uid)
         c.employee_messages = said
+        if found_in_turn:  # the agent's status lookup in that turn showed the incident
+            c.evidence = [Evidence(id="E1", tool="check_system_status", args={}, summary="INC-2051 open",
+                                   turn=found_in_turn)]
         return e.evaluate("add_user_to_incident", world.users[uid], c, "INC-2051", situation_words=words)
 
     office = ["Salesforce is slow", "I'm in the Chicago office on the office wifi"]
@@ -144,3 +147,7 @@ def test_linking_to_an_incident_needs_the_records_and_the_employees_own_words(wo
     # The record puts David in Chicago, but that alone doesn't say the incident applies to him today
     assert link("u-david", ["Salesforce is slow"], None).missing == ["employee_describes_incident"]
     assert link("u-david", office, "I'm on the Chicago office network").missing == ["employee_describes_incident"]
+    # The opening came before the agent knew of the incident, so it can't be the confirmation
+    opening = ["Salesforce is slow here in the Chicago office", "yes"]
+    assert link("u-david", opening, "here in the Chicago office").missing == ["employee_describes_incident"]
+    assert link("u-david", office, "in the Chicago office", found_in_turn=None).missing == ["employee_describes_incident"]
